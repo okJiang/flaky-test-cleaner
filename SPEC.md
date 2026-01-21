@@ -44,12 +44,11 @@
 4. **FailureExtractor**：从日志中抽取结构化失败片段（test 名称、失败类型、堆栈、平台信息等）。
 5. **FlakyClassifier**：规则 + LLM 判定是否 flaky（输出置信度、证据与解释）。
 6. **IssueManager**：创建/更新 issue、打标签、去重聚合、维护状态。
-7. **AnalysisAgent**：在 issue 中输出可行动的分析与建议。
-8. **ConversationAgent**：监听 issue/PR 新互动并作出回应（受策略约束）。
-9. **FixAgent**：在满足许可条件后生成修复 PR，并持续更新。
-10. **ReviewResponseAgent**：跟进 review comment，产生修复提交或解释。
-11. **StateStore**：保存指纹 → issue/PR 状态、历史 run 证据、动作审计。
-12. **Observability**：日志、指标、告警、成本统计。
+7. **IssueAgent**：统一承担“初次分析 + 后续互动回复”，共享同一上下文与证据存储。
+8. **FixAgent**：在满足许可条件后生成修复 PR，并持续根据 review/讨论迭代直到合入或终止。
+9. **RepoWorkspaceManager**：跨 agent 管理 `tikv/pd` 代码环境（克隆缓存、worktree、并发与清理）。
+10. **StateStore**：保存指纹 → issue/PR 状态、历史 run 证据、动作审计。
+11. **Observability**：日志、指标、告警、成本统计。
 
 ### 4.2 数据流（Discovery → Issue）
 
@@ -57,7 +56,7 @@ Scheduler → CI Provider 列举失败 runs → LogFetcher 拉取日志 → Fail
 
 ### 4.3 数据流（Issue/PR → Interaction → Fix）
 
-ConversationAgent 监听互动 →（必要时）补充证据/解释/建议 → 当满足许可条件 → FixAgent 生成 PR → ReviewResponseAgent 迭代 → 合入后归档。
+IssueAgent 监听互动 →（必要时）补充证据/解释/建议 → 当满足许可条件 → FixAgent 生成 PR 并迭代 → 合入后归档。
 
 ## 5. 外部系统与权限
 
@@ -110,8 +109,34 @@ LLM 任务：
 
 ### 6.4 合并策略
 最终分类 = 规则先验 + LLM 判定（可配置权重）。
+- 若分类为 `infra-flake`：直接忽略（不创建/更新 issue、不进入治理流程），仅计入指标与审计日志（可选）。
 - 若规则强判定为 regression，则不创建 flaky issue，仅记录。
 - 若 LLM=unknown 或低置信度，则创建 `needs-triage` issue（默认关闭；可配置为只记录不发 issue）。
+
+## 6.5 已验证的 GitHub Actions 拉取步骤（tikv/pd）
+
+> 目的：把“如何拉取哪部分内容”写成可直接实现的步骤，并验证 flaky 判断的最小可行数据来源。
+
+已在 2026-01-21 通过 `gh api` 验证以下链路可用：
+
+1) 列出 workflows（获取 workflow id）
+- `GET /repos/tikv/pd/actions/workflows`
+
+2) 针对某个 workflow，列出失败 runs
+- `GET /repos/tikv/pd/actions/workflows/{workflow_id}/runs?status=failure&per_page=N`
+
+3) 针对某次 run，列出 jobs（定位失败 job）
+- `GET /repos/tikv/pd/actions/runs/{run_id}/jobs?per_page=N`
+
+4) 拉取失败 job 的日志（可解析到 go test 失败标记）
+- `GET /repos/tikv/pd/actions/jobs/{job_id}/logs`
+- 实测该接口返回 `Content-Type: text/plain`（而非 zip），可直接按行解析。
+- 在 `PD Test` 的失败 job 日志中可稳定抓到形如 `[FAIL]`、`--- FAIL:`、`panic:`、`timeout` 等信号。
+
+最小可行判定（MVP）：
+- 只针对 `PD Test` 类 workflow 的失败 job 做 FailureExtractor。
+- FailureExtractor 使用正则提取：测试套件/用例名、失败段落（上下文窗口）、以及“可能 flaky”关键词（timeout、race、connection reset 等）。
+- FlakyClassifier 使用“同一测试名 + 相近 commit 反复出现 + 错误签名相似”做初筛，再交给 LLM 输出置信度与解释。
 
 ## 7. Fingerprint 与去重
 
@@ -134,32 +159,91 @@ LLM 任务：
 ## 8. Issue 生命周期与状态机
 
 ### 8.1 Labels（建议默认）
-- `flaky-test`：确认是 flaky test
-- `infra-flake`：基础设施/环境抖动
-- `needs-triage`：低置信度，需要人工确认
-- `ai-managed`：该 issue 由本系统维护
-- `ai-fix-approved`：允许自动开 PR（许可闸门）
-- `fix-in-progress`：已开 PR 或正在尝试修复
-- `blocked`：等待外部信息（需要 maintainer 提供）
+
+> 约定：所有 labels 都带前缀 `flaky-test-cleaner/`，避免与仓库既有 label 冲突。
+
+- `flaky-test-cleaner/flaky-test`：确认是 flaky test
+- `flaky-test-cleaner/needs-triage`：低置信度，需要人工确认
+- `flaky-test-cleaner/ai-managed`：该 issue 由本系统维护
+- `flaky-test-cleaner/ai-fix-approved`：允许自动开 PR（许可闸门）
+- `flaky-test-cleaner/fix-in-progress`：已开 PR 或正在尝试修复
+- `flaky-test-cleaner/blocked`：等待外部信息（需要 maintainer 提供）
 
 ### 8.2 状态（StateStore）
-- `NEW`：首次发现，已创建 issue
-- `ANALYZED`：已输出分析与建议
-- `WAITING_FOR_HUMAN`：等待讨论/确认/许可
-- `APPROVED_TO_FIX`：收到明确许可
-- `PR_OPENED`：PR 已创建
-- `CHANGES_REQUESTED`：收到 review 修改意见
+
+- `DISCOVERED`：发现新 fingerprint（尚未写入或刚写入）
+- `ISSUE_OPEN`：已创建或已关联到 issue
+- `TRIAGED`：IssueAgent 已给出初次分析/复现/建议
+- `WAITING_FOR_SIGNAL`：等待人工确认/许可/更多证据
+- `NEEDS_UPDATE`：出现新 occurrence 或新证据，需要刷新 issue 总结（循环态）
+- `APPROVED_TO_FIX`：收到明确许可（label/phrase）
+- `PR_OPEN`：已创建 PR
+- `PR_NEEDS_CHANGES`：收到 review request changes（循环态）
+- `PR_UPDATING`：正在生成/推送修复提交（循环态）
 - `MERGED`：合入
 - `CLOSED_WONTFIX`：关闭/无法推进
 
-### 8.3 触发条件（简化）
-- NEW → ANALYZED：AnalysisAgent 评论成功
-- ANALYZED → WAITING_FOR_HUMAN：默认进入等待
-- WAITING_FOR_HUMAN → APPROVED_TO_FIX：label/phrase 触发
-- APPROVED_TO_FIX → PR_OPENED：FixAgent 创建 PR 成功
-- PR_OPENED → CHANGES_REQUESTED：出现 review request changes
-- CHANGES_REQUESTED → PR_OPENED：ReviewResponseAgent 推送修复提交
-- PR_OPENED → MERGED：PR merged
+### 8.3 触发条件（详细，含循环）
+
+Mermaid 状态转换图（与本节文字保持一致）：
+
+```mermaid
+stateDiagram-v2
+  [*] --> DISCOVERED: new fingerprint
+
+  %% Discovery / issue creation
+  DISCOVERED --> ISSUE_OPEN: IssueManager create/update issue
+  ISSUE_OPEN --> TRIAGED: IssueAgent initial analysis comment
+  TRIAGED --> WAITING_FOR_SIGNAL: wait for human signal
+
+  %% Issue discussion loop
+  WAITING_FOR_SIGNAL --> TRIAGED: new discussion / question
+  WAITING_FOR_SIGNAL --> APPROVED_TO_FIX: label flaky-test-cleaner/ai-fix-approved or /ai-fix
+  WAITING_FOR_SIGNAL --> CLOSED_WONTFIX: stale / maintainer asks stop
+
+  %% Global: new occurrence arrives (loop)
+  ISSUE_OPEN --> NEEDS_UPDATE: new CI occurrence
+  TRIAGED --> NEEDS_UPDATE: new CI occurrence
+  WAITING_FOR_SIGNAL --> NEEDS_UPDATE: new CI occurrence
+  %% Note: after APPROVED_TO_FIX (and during PR loop), new occurrences are recorded but do not change state.
+
+  NEEDS_UPDATE --> ISSUE_OPEN: IssueManager append occurrence
+
+  %% PR loop
+  APPROVED_TO_FIX --> PR_OPEN: FixAgent creates PR
+  PR_OPEN --> PR_NEEDS_CHANGES: review requests changes
+  PR_NEEDS_CHANGES --> PR_UPDATING: FixAgent prepares commits
+  PR_UPDATING --> PR_OPEN: push commits; await review
+
+  PR_OPEN --> MERGED: PR merged
+  PR_OPEN --> CLOSED_WONTFIX: PR closed / stop
+
+  MERGED --> [*]
+  CLOSED_WONTFIX --> [*]
+```
+
+Discovery 循环：
+- （`APPROVED_TO_FIX` 之前的状态）收到新 CI 失败 occurrence 且 fingerprint 相同 → `NEEDS_UPDATE`
+- `NEEDS_UPDATE` → `ISSUE_OPEN`：IssueManager 成功把 occurrence 追加到 issue（或 state store）
+
+修复阶段（`APPROVED_TO_FIX` 及之后）的约束：
+- 新 CI occurrence 仍会写入 StateStore（用于统计与回归判断），但不会触发状态回退到 `NEEDS_UPDATE`。
+- 如需在 PR/issue 上补充“仍然在失败”的信息，应由 FixAgent 作为备注评论发布，且不得改变主状态机流程。
+
+Issue 循环：
+- `DISCOVERED` → `ISSUE_OPEN`：IssueManager 完成 create/update issue 并打上 `flaky-test-cleaner/ai-managed`
+- `ISSUE_OPEN` → `TRIAGED`：IssueAgent 发布首条分析评论（或更新“当前结论”段落）
+- `TRIAGED` → `WAITING_FOR_SIGNAL`：默认进入等待
+- `WAITING_FOR_SIGNAL` → `TRIAGED`：有新讨论/新提问，IssueAgent 回复并刷新结论（可多次循环）
+- `WAITING_FOR_SIGNAL` → `APPROVED_TO_FIX`：出现允许信号（`flaky-test-cleaner/ai-fix-approved` 或 `/ai-fix`）
+
+PR 循环：
+- `APPROVED_TO_FIX` → `PR_OPEN`：FixAgent 创建 PR，并将 issue 打上 `flaky-test-cleaner/fix-in-progress`
+- `PR_OPEN` → `PR_NEEDS_CHANGES`：收到 review request changes / blocking comment
+- `PR_NEEDS_CHANGES` → `PR_UPDATING`：FixAgent 开始生成修复提交
+- `PR_UPDATING` → `PR_OPEN`：提交推送成功，等待下一轮 review（循环）
+- `PR_OPEN` → `MERGED`：PR merged
+- `PR_OPEN` → `CLOSED_WONTFIX`：PR closed 且无继续空间（例如 maintainer 要求停止）
 
 ## 9. Agent 职责与输出规范
 
@@ -170,44 +254,83 @@ LLM 任务：
 Issue 标题建议：
 - `[flaky] <test_name> — <short error signature>`
 
-Issue 正文必须包含：
-- 近几次 occurrence 表（run_url/commit/job/test）
-- 关键日志片段（短）
-- AI 判定（分类/置信度/理由）
-- 下一步建议（可行动）
+Issue 正文生成规则（必须可重复、可幂等）：
+- Issue body 由多个“机器维护区块”组成，每个区块用 HTML 注释包围，便于后续精确替换（避免重复堆叠）。
+- 必须包含以下结构（Markdown）：
+  1) `## Summary`：当前分类（仅 flaky-test/likely-regression/unknown 会进入 issue）、置信度、首次发现时间、最近一次出现时间
+  2) `## Evidence`：最近 N 次 occurrence 表格（run_url、workflow、job、commit、test_name、error_signature）
+  3) `## Log Excerpts`：每次 occurrence 提供 1-2 个 excerpt，使用折叠块 `<details>`，每个 excerpt 限制行数（默认 120 行）
+  4) `## Next Actions`：可执行清单（复现命令、建议的进一步日志/信息）
+  5) `## Automation`：fingerprint、state、上次扫描时间、系统版本
 
-### 9.2 AnalysisAgent
-输入：issue 当前内容 + evidence pack + repo 上下文（可选：相关源码片段）
-输出：
-- 可能根因（分层：最可能/次可能）
-- 如何复现（尽可能给命令/环境变量）
-- 建议修复路径（最小变更优先）
+excerpt 选取策略（FailureExtractor → IssueCreatorAgent）：
+- 优先匹配 go test 常见失败信号：`[FAIL]`, `--- FAIL:`, `panic:`, `DATA RACE`, `timeout`, `race`, `connection reset`, `broken pipe`
+- 每个信号点提供固定上下文窗口（例如前后各 40 行），并在 excerpt 开头注明 `run_url` 与 `job_id`。
+
+### 9.2 IssueAgent（合并 Analysis + Conversation，共享上下文）
+
+输入：
+- issue 当前内容（含历史结论）
+- evidence pack（结构化失败 + excerpt）
+- repo 上下文（源码、测试代码、最近变更；由 RepoWorkspaceManager 提供）
+
+输出（两类行为）：
+1) 初次分析（TRIAGED）：
+- 可能根因（分层：最可能/次可能；每条必须绑定证据点）
+- 如何复现（尽可能给命令/环境变量/建议 rerun 参数）
+- 建议修复路径（最小变更优先，先测例稳定性）
 - 风险/回归面提示
+2) 互动回复（循环）：
+- 对提问给出“证据链接 + 结论更新 + 下一步”
+- 必须保持与 Summary 一致；如观点变化需说明“因为新增证据 X”。
 
-### 9.3 ConversationAgent
-输入：新评论/新事件（issue/PR）
-策略：
-- 只回应“信息补充、澄清、证据链接、执行结果报告”。
-- 不与人争辩，不做超出证据的断言。
-- 必须引用系统已保存证据或可公开链接。
+是否需要 clone 仓库（默认策略）：
+- 默认不做全量 clone：优先用 GitHub API 拉取相关文件内容（测试文件、失败栈涉及文件）以降低成本。
+- 当需要跨文件搜索/定位测试定义/读取 build tag 等：使用 RepoWorkspaceManager 创建浅克隆环境（见 §9.4 与 §10.3）。
 
-### 9.4 FixAgent（带闸门）
+### 9.3 FixAgent（合并 Fix + ReviewResponse，带闸门）
 输入：许可信号 + issue 上下文 + evidence + 目标修复策略
 输出：
 - 新分支（命名：`ai/flaky/<fingerprint-short>`）
 - PR：描述、动机、测试计划、与 issue 关联
 - 变更：优先修“测试稳定性”而非改产品逻辑；若必须改产品逻辑需更高门槛（默认禁用）。
 
-### 9.5 ReviewResponseAgent
-输入：review comments + PR diff + 相关源码上下文
-输出：
-- commit（尽量小）或解释性回复
-- 若无法满足：明确原因并请求人工介入（不提问，以“需要 maintainer 决策”陈述）
+Review 跟进（循环能力）：
+- 读取 review comments / checks 失败摘要
+- 生成最小提交（或解释性回复）并推送
+- 若遇到“需要维护者决策”的分歧，停止自动推送，只在 PR 中给出选项与风险，不继续争论。
+
+### 9.4 RepoWorkspaceManager（跨 Agent 的 repo 环境管理）
+
+目标：让各个 agent 在“同一份代码上下文”上工作，同时控制磁盘与并发。
+
+策略（建议默认）：
+- 维护一个 bare mirror：`cache/tikv-pd.git`（定期 `git fetch --prune`）
+- 每个 fingerprint/PR 使用 worktree：`worktrees/<fingerprint-short>/`，并 checkout 到对应 `head_sha`
+- 并发限制：同一时刻最多 K 个 worktree（默认 K=2），超出则排队
+- 清理：worktree 在 N 天无活动后回收（默认 7 天），但保留 mirror
+- 读写隔离：IssueAgent 只读 worktree；FixAgent 使用独立 worktree + 分支
 
 ## 10. 存储与数据模型
 
-### 10.1 StateStore
-MVP 推荐 SQLite（单文件）或 Postgres（可扩展）。
+### 10.1 StateStore（TiDB Cloud Starter）
+
+存储必须使用 TiDB Cloud Starter（Serverless）。
+
+创建与连接要点（基于 TiDB Cloud 官方文档）：
+- 在 TiDB Cloud Console 创建 Starter cluster（约 30 秒完成）。
+- 创建数据库密码；未设置密码无法连接。
+- Starter/Essential 直连需要 TLS。
+- 网络可选 public endpoint（从本机/CI 直连）或 private endpoint（生产推荐）。
+
+连接形态：
+- 使用 MySQL 协议直连（长期运行服务推荐）。
+- 连接参数通过环境变量提供，严禁写入仓库：
+  - `TIDB_HOST`, `TIDB_PORT`, `TIDB_USER`, `TIDB_PASSWORD`
+  - `TIDB_DATABASE`（默认 `flaky_test_cleaner`）
+  - `TIDB_CA_CERT_PATH`（TLS CA 证书路径）
+
+说明：本项目在实现阶段需要提供“首次启动自动建库/建表”的迁移能力。
 
 核心表（概念）：
 - `occurrences`：run_id/job/test/error_signature/excerpt_id/timestamp
@@ -215,6 +338,11 @@ MVP 推荐 SQLite（单文件）或 Postgres（可扩展）。
 - `issues`：issue_number/state/labels/history
 - `audit_log`：每次自动动作（时间、动作、对象、结果、错误）
 - `costs`：LLM token/调用次数
+
+### 10.3 与 TiDB Cloud 的工程约束
+- 必须使用连接池并设置合理超时，避免 serverless 下连接抖动导致资源耗尽。
+- 所有写入操作保持幂等：以 `fingerprint` 作为唯一键（UNIQUE）。
+- 对于长文本（日志 excerpt），建议存储为“摘要 + 外部链接 + 可选压缩文本”，避免行级膨胀。
 
 ### 10.2 数据保留
 - 日志 excerpt 只保留必要片段，默认保留 90 天。
@@ -269,24 +397,23 @@ MVP 推荐 SQLite（单文件）或 Postgres（可扩展）。
 - 判定与创建/更新 issue（去重）
 
 ### Milestone B — Analysis + Interaction
-- AnalysisAgent 输出高质量分析
-- ConversationAgent 基于事件增量回应
+- IssueAgent 输出高质量分析并基于事件增量回应（共享上下文）
 
 ### Milestone C — Fix + PR (gated)
 - 实现许可闸门
 - 自动开 PR 与最小修复
 
 ### Milestone D — Review Loop + Merge
-- ReviewResponseAgent 跟进意见
+- FixAgent 跟进意见
 - 合入后自动归档与总结
 
 ## 16. 默认决策（可在实现前调整）
 
 - CI Provider：GitHub Actions
 - 调度：每 3 天一次（可配每周）
-- 存储：SQLite
+- 存储：TiDB Cloud Starter
 - LLM 判定阈值：0.75
-- 自动修复：默认关闭；仅在 `ai-fix-approved` 或 `/ai-fix` 触发后开启
+- 自动修复：默认关闭；仅在 `flaky-test-cleaner/ai-fix-approved` 或 `/ai-fix` 触发后开启
 - 误报控制：低置信度默认不创建 issue（只记录），可配置为创建 `needs-triage`
 
 ---
