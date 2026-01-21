@@ -12,11 +12,13 @@ import (
 	"github.com/okJiang/flaky-test-cleaner/internal/config"
 	"github.com/okJiang/flaky-test-cleaner/internal/extract"
 	"github.com/okJiang/flaky-test-cleaner/internal/fingerprint"
+	"github.com/okJiang/flaky-test-cleaner/internal/fixagent"
 	"github.com/okJiang/flaky-test-cleaner/internal/github"
 	"github.com/okJiang/flaky-test-cleaner/internal/issue"
 	"github.com/okJiang/flaky-test-cleaner/internal/issueagent"
 	"github.com/okJiang/flaky-test-cleaner/internal/sanitize"
 	"github.com/okJiang/flaky-test-cleaner/internal/store"
+	"github.com/okJiang/flaky-test-cleaner/internal/workspace"
 )
 
 func RunOnce(ctx context.Context, cfg config.Config) error {
@@ -64,6 +66,29 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 		DryRun: cfg.DryRun,
 	})
 	analysisAgent := issueagent.New()
+	wsManager, err := workspace.NewManager(workspace.Options{
+		RemoteURL:    cfg.RepoRemoteURL(),
+		MirrorDir:    cfg.WorkspaceMirrorDir,
+		WorktreesDir: cfg.WorkspaceWorktreesDir,
+		MaxWorktrees: cfg.WorkspaceMaxWorktrees,
+	})
+	if err != nil {
+		return err
+	}
+	if err := wsManager.Ensure(ctx); err != nil {
+		return err
+	}
+	fixAgent, err := fixagent.New(fixagent.Options{
+		Owner:     cfg.GitHubOwner,
+		Repo:      cfg.GitHubRepo,
+		DryRun:    cfg.DryRun,
+		GitHub:    ghIssue,
+		Workspace: wsManager,
+		Store:     st,
+	})
+	if err != nil {
+		return err
+	}
 
 	for _, run := range runs {
 		jobs, err := ghRead.ListRunJobs(ctx, cfg.GitHubOwner, cfg.GitHubRepo, run.ID, github.ListRunJobsOptions{PerPage: cfg.MaxJobs})
@@ -196,6 +221,9 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	if err := checkApprovalSignals(ctx, cfg, ghIssue, st); err != nil {
 		return err
 	}
+	if err := runFixAgent(ctx, fixAgent, st, ghIssue); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -289,4 +317,29 @@ func issueHasApproval(ctx context.Context, cfg config.Config, gh *github.Client,
 		}
 	}
 	return false, "", nil
+}
+
+func runFixAgent(ctx context.Context, agent *fixagent.Agent, st store.Store, gh *github.Client) error {
+	const batchSize = 5
+	fps, err := st.ListFingerprintsByState(ctx, store.StateApprovedToFix, batchSize)
+	if err != nil {
+		return err
+	}
+	for _, fp := range fps {
+		occ, err := st.ListRecentOccurrences(ctx, fp.Fingerprint, 1)
+		if err != nil {
+			return err
+		}
+		if len(occ) == 0 {
+			continue
+		}
+		res, err := agent.Attempt(ctx, fp, occ)
+		if err != nil {
+			return err
+		}
+		if res.CommentBody != "" {
+			log.Printf("fixagent prepared fingerprint %s issue #%d", fp.Fingerprint, fp.IssueNumber)
+		}
+	}
+	return nil
 }

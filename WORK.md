@@ -99,7 +99,10 @@
 	- Worktree 租赁：`Acquire(ctx, name, sha)` 创建 `git worktree add --force`，限制并发数；`Release` 触发 `git worktree remove --force` 并清理磁盘；dry-run/错误需返回明确信息。
 	- 测试：使用临时 git 仓库验证 clone/fetch、read-only 操作、租赁（含限流）以及 Release 行为。
 - [x] 4.2 许可信号监听：解析 `flaky-test-cleaner/ai-fix-approved` label 及 `/ai-fix` 评论，驱动状态转移到 `APPROVED_TO_FIX`。
-- [ ] 4.3 FixAgent MVP：在允许信号下 checkout 专用分支，生成最小 patch（先聚焦 test 稳定性），并通过 GitHub API 创建 PR。
+- [ ] 4.3 FixAgent MVP
+	- [ ] 4.3.1 FixAgent scaffolding：接入 RepoWorkspaceManager & GitHub client，拿到 `APPROVED_TO_FIX` 指纹，落地基础注释/审计并推进状态到 `PR_OPEN`。
+	- [ ] 4.3.2 Patch 构建与验证：在 worktree 内执行最小 go test / file edit钩子（Stub 可先记录 todo）。
+	- [ ] 4.3.3 PR 自动创建：生成分支、push、调用 GitHub API 创建 PR，记录链接并更新 state + labels。
 
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
