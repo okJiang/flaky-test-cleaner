@@ -100,8 +100,8 @@
 	- 测试：使用临时 git 仓库验证 clone/fetch、read-only 操作、租赁（含限流）以及 Release 行为。
 - [x] 4.2 许可信号监听：解析 `flaky-test-cleaner/ai-fix-approved` label 及 `/ai-fix` 评论，驱动状态转移到 `APPROVED_TO_FIX`。
 - [ ] 4.3 FixAgent MVP
-	- [ ] 4.3.1 FixAgent scaffolding：接入 RepoWorkspaceManager & GitHub client，拿到 `APPROVED_TO_FIX` 指纹，落地基础注释/审计并推进状态到 `PR_OPEN`。
-	- [ ] 4.3.2 Patch 构建与验证：在 worktree 内执行最小 go test / file edit钩子（Stub 可先记录 todo）。
+	- [x] 4.3.1 FixAgent scaffolding：接入 RepoWorkspaceManager & GitHub client，拿到 `APPROVED_TO_FIX` 指纹，落地基础注释/审计并推进状态到 `PR_OPEN`。
+	- [x] 4.3.2 Patch 构建与验证：在 worktree 内执行最小 go test / file edit钩子（Stub 可先记录 todo）。
 	- [ ] 4.3.3 PR 自动创建：生成分支、push、调用 GitHub API 创建 PR，记录链接并更新 state + labels。
 
 ### Progress Log
@@ -112,3 +112,5 @@
 - 2026-01-21：完成 Task 3.3（Runner 集成 IssueAgent + GitHub 评论 + audit log）。
 - 2026-01-21：完成 Task 4.1（RepoWorkspaceManager 基础设施）。
 - 2026-01-21：完成 Task 4.2（许可信号监听与状态推进）。
+- 2026-01-21：完成 Task 4.3.1（FixAgent scaffolding）。
+- 2026-01-21：完成 Task 4.3.2（Patch 构建与最小验证钩子）。

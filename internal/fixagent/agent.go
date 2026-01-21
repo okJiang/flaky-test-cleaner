@@ -3,6 +3,9 @@ package fixagent
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -64,7 +67,18 @@ func (a *Agent) Attempt(ctx context.Context, fp store.FingerprintRecord, occ []e
 	}
 	defer lease.Release(context.Background())
 
-	body := buildPreparationComment(fp, occ, lease.Path)
+	if err := writeTodoFile(lease.Path, fp, occ[0]); err != nil {
+		return AttemptResult{}, fmt.Errorf("write todo: %w", err)
+	}
+	testSummary := "go test ./... skipped"
+	if summary, err := runGoTest(ctx, lease.Path); err != nil {
+		testSummary = fmt.Sprintf("go test ./... failed: %v\n%s", err, summary)
+		log.Printf("fixagent go test failed: %v", err)
+	} else {
+		testSummary = fmt.Sprintf("go test ./... succeeded:\n%s", summary)
+	}
+
+	body := buildPreparationComment(fp, occ, lease.Path, testSummary)
 	if a.opts.DryRun {
 		return AttemptResult{CommentBody: body}, nil
 	}
@@ -80,7 +94,7 @@ func (a *Agent) Attempt(ctx context.Context, fp store.FingerprintRecord, occ []e
 	return AttemptResult{CommentBody: body}, nil
 }
 
-func buildPreparationComment(fp store.FingerprintRecord, occ []extract.Occurrence, path string) string {
+func buildPreparationComment(fp store.FingerprintRecord, occ []extract.Occurrence, path string, testSummary string) string {
 	target := occ[0]
 	return fmt.Sprintf("<!-- FTC:FIX_AGENT_START -->\n"+
 		"FixAgent is preparing an automated stabilization patch for fingerprint `%s`.\n\n"+
@@ -88,6 +102,7 @@ func buildPreparationComment(fp store.FingerprintRecord, occ []extract.Occurrenc
 		"- Commit: %s\n"+
 		"- Test: %s\n"+
 		"- Last occurrence: [run %d](%s)\n"+
+		"- Verification: %s\n"+
 		"- Next Steps:\n"+
 		"  1. Reproduce failure locally within the workspace.\n"+
 		"  2. Craft a stabilization patch focused on the failing test.\n"+
@@ -100,8 +115,23 @@ func buildPreparationComment(fp store.FingerprintRecord, occ []extract.Occurrenc
 		safe(target.TestName),
 		target.RunID,
 		target.RunURL,
+		testSummary,
 		time.Now().UTC().Format(time.RFC3339),
 	)
+}
+
+func writeTodoFile(path string, fp store.FingerprintRecord, occ extract.Occurrence) error {
+	content := fmt.Sprintf("# FixAgent TODO\n\n- Fingerprint: `%s`\n- Test: `%s`\n- Latest run: %s\n- Commit: %s\n\nDescribe the stabilization strategy here.\n",
+		fp.Fingerprint, safe(occ.TestName), occ.RunURL, occ.HeadSHA)
+	return os.WriteFile(filepath.Join(path, "FIX_AGENT_TODO.md"), []byte(content), 0o644)
+}
+
+func runGoTest(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "go", "test", "./...")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GO111MODULE=on")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func shortSHA(sha string) string {

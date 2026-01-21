@@ -16,8 +16,8 @@ func TestBuildPreparationComment(t *testing.T) {
 		TestName: "TestBar",
 		HeadSHA:  "abcdef1234567890",
 	}}
-	comment := buildPreparationComment(fp, occ, "/tmp/worktrees/fix-fp")
-	for _, token := range []string{"FixAgent", "run 101", "abcdef1"} {
+	comment := buildPreparationComment(fp, occ, "/tmp/worktrees/fix-fp", "go test ok")
+	for _, token := range []string{"FixAgent", "run 101", "abcdef1", "go test ok"} {
 		if !strings.Contains(comment, token) {
 			t.Fatalf("expected comment to contain %q:\n%s", token, comment)
 		}
