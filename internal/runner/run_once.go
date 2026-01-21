@@ -155,6 +155,10 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 				if change.Noop {
 					continue
 				}
+				
+				if cfg.DryRun {
+					log.Printf("dry-run issue update fingerprint=%s title=%q labels=%v", fp, change.Title, change.Labels)
+				}
 
 				issueNumber, err := issueMgr.Apply(ctx, ghIssue, change)
 				if err != nil {
