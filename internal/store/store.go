@@ -2,10 +2,17 @@ package store
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/okJiang/flaky-test-cleaner/internal/config"
 	"github.com/okJiang/flaky-test-cleaner/internal/extract"
 )
 
@@ -219,26 +226,197 @@ func (m *Memory) LinkIssue(ctx context.Context, fingerprint string, issueNumber 
 
 func (m *Memory) Close() error { return nil }
 
-type TiDBStore struct{}
-
-func NewTiDBStore(cfg any) (*TiDBStore, error) {
-	return nil, errors.New("tidb store not implemented")
+type TiDBStore struct {
+	cfg config.Config
+	db  *sql.DB
 }
 
-func (t *TiDBStore) Migrate(ctx context.Context) error { return errors.New("tidb store not implemented") }
+func NewTiDBStore(cfg config.Config) (*TiDBStore, error) {
+	if err := registerTLS(cfg.TiDBCACertPath); err != nil {
+		return nil, err
+	}
+	dsn := mysqlDSN(cfg, cfg.TiDBDatabase)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(10)
+	return &TiDBStore{cfg: cfg, db: db}, nil
+}
+
+func (t *TiDBStore) Migrate(ctx context.Context) error {
+	if err := t.ensureDatabase(ctx); err != nil {
+		return err
+	}
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS occurrences (
+			fingerprint VARCHAR(64) NOT NULL,
+			repo VARCHAR(200) NOT NULL,
+			workflow VARCHAR(200) NOT NULL,
+			run_id BIGINT NOT NULL,
+			run_url TEXT NOT NULL,
+			head_sha VARCHAR(64) NOT NULL,
+			job_id BIGINT NOT NULL,
+			job_name VARCHAR(200) NOT NULL,
+			runner_os VARCHAR(100) NOT NULL,
+			occurred_at TIMESTAMP NOT NULL,
+			framework VARCHAR(50) NOT NULL,
+			test_name VARCHAR(300) NOT NULL,
+			error_signature TEXT NOT NULL,
+			excerpt MEDIUMTEXT NOT NULL,
+			PRIMARY KEY (fingerprint, run_id, job_id, test_name(128))
+		)`,
+		`CREATE TABLE IF NOT EXISTS fingerprints (
+			fingerprint VARCHAR(64) NOT NULL PRIMARY KEY,
+			repo VARCHAR(200) NOT NULL,
+			test_name VARCHAR(300) NOT NULL,
+			framework VARCHAR(50) NOT NULL,
+			class VARCHAR(50) NOT NULL,
+			confidence DOUBLE NOT NULL,
+			issue_number INT NOT NULL DEFAULT 0,
+			pr_number INT NOT NULL DEFAULT 0,
+			first_seen_at TIMESTAMP NOT NULL,
+			last_seen_at TIMESTAMP NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS audit_log (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			action VARCHAR(100) NOT NULL,
+			target VARCHAR(200) NOT NULL,
+			result VARCHAR(50) NOT NULL,
+			error_message TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS costs (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			provider VARCHAR(50) NOT NULL,
+			model VARCHAR(100) NOT NULL,
+			tokens BIGINT NOT NULL,
+			cost_usd DOUBLE NOT NULL
+		)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := t.db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (t *TiDBStore) UpsertOccurrence(ctx context.Context, occ extract.Occurrence) error {
-	return errors.New("tidb store not implemented")
+	query := `INSERT INTO occurrences (
+		fingerprint, repo, workflow, run_id, run_url, head_sha, job_id, job_name, runner_os,
+		occurred_at, framework, test_name, error_signature, excerpt
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	ON DUPLICATE KEY UPDATE
+		occurred_at = VALUES(occurred_at),
+		excerpt = VALUES(excerpt)`
+	_, err := t.db.ExecContext(ctx, query,
+		occ.Fingerprint, occ.Repo, occ.Workflow, occ.RunID, occ.RunURL, occ.HeadSHA, occ.JobID, occ.JobName, occ.RunnerOS,
+		occ.OccurredAt, occ.Framework, occ.TestName, occ.ErrorSignature, occ.Excerpt,
+	)
+	return err
 }
+
 func (t *TiDBStore) UpsertFingerprint(ctx context.Context, rec FingerprintRecord) error {
-	return errors.New("tidb store not implemented")
+	query := `INSERT INTO fingerprints (
+		fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at
+	) VALUES (?,?,?,?,?,?,?,?,?,?)
+	ON DUPLICATE KEY UPDATE
+		repo = VALUES(repo),
+		test_name = VALUES(test_name),
+		framework = VALUES(framework),
+		class = VALUES(class),
+		confidence = VALUES(confidence),
+		issue_number = IF(VALUES(issue_number)=0, issue_number, VALUES(issue_number)),
+		pr_number = IF(VALUES(pr_number)=0, pr_number, VALUES(pr_number)),
+		first_seen_at = LEAST(first_seen_at, VALUES(first_seen_at)),
+		last_seen_at = GREATEST(last_seen_at, VALUES(last_seen_at))`
+	_, err := t.db.ExecContext(ctx, query,
+		rec.Fingerprint, rec.Repo, rec.TestName, rec.Framework, rec.Class, rec.Confidence, rec.IssueNumber, rec.PRNumber, rec.FirstSeenAt, rec.LastSeenAt,
+	)
+	return err
 }
+
 func (t *TiDBStore) GetFingerprint(ctx context.Context, fingerprint string) (*FingerprintRecord, error) {
-	return nil, errors.New("tidb store not implemented")
+	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at
+		FROM fingerprints WHERE fingerprint = ?`
+	row := t.db.QueryRowContext(ctx, query, fingerprint)
+	var rec FingerprintRecord
+	if err := row.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.FirstSeenAt, &rec.LastSeenAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &rec, nil
 }
+
 func (t *TiDBStore) ListRecentOccurrences(ctx context.Context, fingerprint string, limit int) ([]extract.Occurrence, error) {
-	return nil, errors.New("tidb store not implemented")
+	if limit <= 0 {
+		limit = 5
+	}
+	query := `SELECT repo, workflow, run_id, run_url, head_sha, job_id, job_name, runner_os,
+		occurred_at, framework, test_name, error_signature, excerpt, fingerprint
+		FROM occurrences WHERE fingerprint = ? ORDER BY occurred_at DESC LIMIT ?`
+	rows, err := t.db.QueryContext(ctx, query, fingerprint, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []extract.Occurrence
+	for rows.Next() {
+		var occ extract.Occurrence
+		if err := rows.Scan(&occ.Repo, &occ.Workflow, &occ.RunID, &occ.RunURL, &occ.HeadSHA, &occ.JobID, &occ.JobName, &occ.RunnerOS,
+			&occ.OccurredAt, &occ.Framework, &occ.TestName, &occ.ErrorSignature, &occ.Excerpt, &occ.Fingerprint); err != nil {
+			return nil, err
+		}
+		out = append(out, occ)
+	}
+	return out, rows.Err()
 }
+
 func (t *TiDBStore) LinkIssue(ctx context.Context, fingerprint string, issueNumber int) error {
-	return errors.New("tidb store not implemented")
+	_, err := t.db.ExecContext(ctx, `UPDATE fingerprints SET issue_number = ? WHERE fingerprint = ?`, issueNumber, fingerprint)
+	return err
 }
-func (t *TiDBStore) Close() error { return nil }
+
+func (t *TiDBStore) Close() error { return t.db.Close() }
+
+func (t *TiDBStore) ensureDatabase(ctx context.Context) error {
+	adminDSN := mysqlDSN(t.cfg, "")
+	admin, err := sql.Open("mysql", adminDSN)
+	if err != nil {
+		return err
+	}
+	defer admin.Close()
+	_, err = admin.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", t.cfg.TiDBDatabase))
+	return err
+}
+
+func registerTLS(caPath string) error {
+	certPool := x509.NewCertPool()
+	pem, err := os.ReadFile(caPath)
+	if err != nil {
+		return err
+	}
+	if !certPool.AppendCertsFromPEM(pem) {
+		return errors.New("failed to append CA cert")
+	}
+	return mysql.RegisterTLSConfig("tidb", &tls.Config{RootCAs: certPool})
+}
+
+func mysqlDSN(cfg config.Config, database string) string {
+	if database == "" {
+		database = ""
+	}
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&tls=tidb",
+		cfg.TiDBUser,
+		cfg.TiDBPassword,
+		cfg.TiDBHost,
+		cfg.TiDBPort,
+		database,
+	)
+}
