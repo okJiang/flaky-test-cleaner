@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -32,6 +33,10 @@ type Config struct {
 	TiDBDatabase   string
 	TiDBCACertPath string
 
+	WorkspaceMirrorDir    string
+	WorkspaceWorktreesDir string
+	WorkspaceMaxWorktrees int
+
 	RequestTimeout time.Duration
 	RunInterval    time.Duration
 }
@@ -60,6 +65,10 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.TiDBDatabase = envOr("TIDB_DATABASE", "flaky_test_cleaner")
 	cfg.TiDBCACertPath = os.Getenv("TIDB_CA_CERT_PATH")
 
+	cfg.WorkspaceMirrorDir = envOr("FTC_WORKSPACE_MIRROR", "cache/tikv-pd.git")
+	cfg.WorkspaceWorktreesDir = envOr("FTC_WORKSPACE_WORKTREES", "worktrees")
+	cfg.WorkspaceMaxWorktrees = envIntOr("FTC_WORKSPACE_MAX", 2)
+
 	cfg.RequestTimeout = envDurationOr("FTC_REQUEST_TIMEOUT", 30*time.Second)
 	cfg.RunInterval = envDurationOr("FTC_RUN_INTERVAL", 0)
 
@@ -71,6 +80,9 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	fs.BoolVar(&cfg.DryRun, "dry-run", cfg.DryRun, "Do not write to GitHub (issue create/update); still writes to TiDB if enabled")
 	fs.Float64Var(&cfg.ConfidenceThreshold, "confidence-threshold", cfg.ConfidenceThreshold, "Classifier threshold to label as flaky")
 	fs.BoolVar(&cfg.TiDBEnabled, "tidb", cfg.TiDBEnabled, "Enable TiDB state store")
+	fs.StringVar(&cfg.WorkspaceMirrorDir, "workspace-mirror", cfg.WorkspaceMirrorDir, "Path to bare mirror used by RepoWorkspaceManager")
+	fs.StringVar(&cfg.WorkspaceWorktreesDir, "workspace-dir", cfg.WorkspaceWorktreesDir, "Path holding RepoWorkspaceManager worktrees")
+	fs.IntVar(&cfg.WorkspaceMaxWorktrees, "workspace-max", cfg.WorkspaceMaxWorktrees, "Maximum concurrent worktrees to lease")
 	fs.DurationVar(&cfg.RunInterval, "interval", cfg.RunInterval, "Interval to run continuously (0 for run once)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -143,4 +155,8 @@ func envDurationOr(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+func (cfg Config) RepoRemoteURL() string {
+	return fmt.Sprintf("https://github.com/%s/%s.git", cfg.GitHubOwner, cfg.GitHubRepo)
 }
