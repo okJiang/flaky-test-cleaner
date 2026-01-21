@@ -91,6 +91,7 @@ type Store interface {
 	ListRecentOccurrences(ctx context.Context, fingerprint string, limit int) ([]extract.Occurrence, error)
 	LinkIssue(ctx context.Context, fingerprint string, issueNumber int) error
 	UpdateFingerprintState(ctx context.Context, fingerprint string, next FingerprintState) error
+	RecordAudit(ctx context.Context, action, target, result, errorMessage string) error
 	Close() error
 }
 
@@ -203,6 +204,10 @@ func (m *Memory) UpdateFingerprintState(ctx context.Context, fingerprint string,
 }
 
 func (m *Memory) Close() error { return nil }
+
+func (m *Memory) RecordAudit(ctx context.Context, action, target, result, errorMessage string) error {
+	return nil
+}
 
 func ensureStateDefaults(rec FingerprintRecord) FingerprintRecord {
 	if rec.State == "" {
@@ -402,6 +407,12 @@ func (t *TiDBStore) UpdateFingerprintState(ctx context.Context, fingerprint stri
 }
 
 func (t *TiDBStore) Close() error { return t.db.Close() }
+
+func (t *TiDBStore) RecordAudit(ctx context.Context, action, target, result, errorMessage string) error {
+	_, err := t.db.ExecContext(ctx, `INSERT INTO audit_log (action, target, result, error_message) VALUES (?,?,?,?)`,
+		action, target, result, errorMessage)
+	return err
+}
 
 func (t *TiDBStore) ensureDatabase(ctx context.Context) error {
 	adminDSN := mysqlDSN(t.cfg, "")

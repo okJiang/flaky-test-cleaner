@@ -13,6 +13,7 @@ import (
 	"github.com/okJiang/flaky-test-cleaner/internal/fingerprint"
 	"github.com/okJiang/flaky-test-cleaner/internal/github"
 	"github.com/okJiang/flaky-test-cleaner/internal/issue"
+	"github.com/okJiang/flaky-test-cleaner/internal/issueagent"
 	"github.com/okJiang/flaky-test-cleaner/internal/sanitize"
 	"github.com/okJiang/flaky-test-cleaner/internal/store"
 )
@@ -61,6 +62,7 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 		Repo:   cfg.GitHubRepo,
 		DryRun: cfg.DryRun,
 	})
+	analysisAgent := issueagent.New()
 
 	for _, run := range runs {
 		jobs, err := ghRead.ListRunJobs(ctx, cfg.GitHubOwner, cfg.GitHubRepo, run.ID, github.ListRunJobsOptions{PerPage: cfg.MaxJobs})
@@ -170,10 +172,64 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 					if err := st.LinkIssue(ctx, fp, issueNumber); err != nil {
 						return err
 					}
+					fpRecUpdated, err := st.GetFingerprint(ctx, fp)
+					if err != nil {
+						return err
+					}
+					if fpRecUpdated == nil {
+						return errors.New("fingerprint record missing after linking issue")
+					}
+					if shouldRunInitialAnalysis(fpRecUpdated.State) {
+						if err := st.UpdateFingerprintState(ctx, fp, store.StateIssueOpen); err != nil {
+							return err
+						}
+						if err := runInitialAnalysis(ctx, cfg, analysisAgent, ghIssue, st, issueNumber, fp, *fpRecUpdated, recent, c); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func shouldRunInitialAnalysis(state store.FingerprintState) bool {
+	return state == store.StateDiscovered
+}
+
+func runInitialAnalysis(
+	ctx context.Context,
+	cfg config.Config,
+	agent *issueagent.Agent,
+	gh *github.Client,
+	st store.Store,
+	issueNumber int,
+	fingerprint string,
+	fpRec store.FingerprintRecord,
+	occ []extract.Occurrence,
+	classification classify.Result,
+) error {
+	input := issueagent.Input{
+		Fingerprint:    fpRec,
+		Occurrences:    occ,
+		Classification: classification,
+	}
+	comment := agent.BuildInitialComment(input)
+	if cfg.DryRun {
+		log.Printf("dry-run issueagent comment issue=%d fingerprint=%s\n%s", issueNumber, fingerprint, comment.Body)
+		return nil
+	}
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber, comment.Body); err != nil {
+		_ = st.RecordAudit(ctx, "issueagent.initial_analysis", fmt.Sprintf("issue/%d", issueNumber), "error", err.Error())
+		return err
+	}
+	if err := st.UpdateFingerprintState(ctx, fingerprint, store.StateTriaged); err != nil {
+		return err
+	}
+	if err := st.UpdateFingerprintState(ctx, fingerprint, store.StateWaitingForSignal); err != nil {
+		return err
+	}
+	return st.RecordAudit(ctx, "issueagent.initial_analysis", fmt.Sprintf("issue/%d", issueNumber), "success", "")
 }

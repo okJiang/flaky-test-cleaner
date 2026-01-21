@@ -83,7 +83,7 @@
 	- 新建 `internal/issueagent`（或同等命名）模块，输入：fingerprint record + 最近 occurrences + classification。
 	- 输出：Markdown 评论，包含根因假设（基于 heuristics/occurrence 关键词）、复现步骤、建议修复路径、风险提示（参考 SPEC §9.2）。
 	- Comment 使用 HTML block tag 标记，以便未来幂等更新；提供最小测试验证模板渲染。
-- [ ] 3.3 Runner 集成
+- [x] 3.3 Runner 集成
 	- 在 issue 创建/更新后，若 fingerprint state= `ISSUE_OPEN`，调用 IssueAgent 发布评论并把状态更新为 `TRIAGED`，随后立即进入 `WAITING_FOR_SIGNAL`。
 	- Dry-run 下打印将要发布的评论摘要；真实运行需写入 GitHub 评论并记录 state。
 	- 将 IssueAgent 的动作写入 TiDB `audit_log`（action=`issueagent.initial_analysis`）以备观测。
@@ -102,3 +102,4 @@
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
 - 2026-01-21：完成 Task 3.1（Fingerprint state 存储扩展 + API）。
 - 2026-01-21：完成 Task 3.2（IssueAgent 初次分析模板与测试）。
+- 2026-01-21：完成 Task 3.3（Runner 集成 IssueAgent + GitHub 评论 + audit log）。

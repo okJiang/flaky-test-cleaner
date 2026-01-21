@@ -182,6 +182,14 @@ func (c *Client) UpdateIssue(ctx context.Context, owner, repo string, number int
 	return res, nil
 }
 
+func (c *Client) CreateIssueComment(ctx context.Context, owner, repo string, number int, body string) error {
+	payload := map[string]any{
+		"body": body,
+	}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	return c.doJSON(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
 func (c *Client) EnsureLabels(ctx context.Context, owner, repo string, labels []string) error {
 	for _, label := range labels {
 		if strings.TrimSpace(label) == "" {
