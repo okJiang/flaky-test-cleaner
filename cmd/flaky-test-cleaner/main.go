@@ -18,7 +18,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := runner.RunOnce(ctx, cfg); err != nil {
+	if err := runner.Run(ctx, cfg); err != nil {
 		log.Printf("run failed: %v", err)
 		os.Exit(1)
 	}

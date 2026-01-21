@@ -33,6 +33,7 @@ type Config struct {
 	TiDBCACertPath string
 
 	RequestTimeout time.Duration
+	RunInterval    time.Duration
 }
 
 func FromEnvAndFlags(args []string) (Config, error) {
@@ -60,6 +61,7 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.TiDBCACertPath = os.Getenv("TIDB_CA_CERT_PATH")
 
 	cfg.RequestTimeout = envDurationOr("FTC_REQUEST_TIMEOUT", 30*time.Second)
+	cfg.RunInterval = envDurationOr("FTC_RUN_INTERVAL", 0)
 
 	fs.StringVar(&cfg.GitHubOwner, "owner", cfg.GitHubOwner, "GitHub repository owner")
 	fs.StringVar(&cfg.GitHubRepo, "repo", cfg.GitHubRepo, "GitHub repository name")
@@ -69,6 +71,7 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	fs.BoolVar(&cfg.DryRun, "dry-run", cfg.DryRun, "Do not write to GitHub (issue create/update); still writes to TiDB if enabled")
 	fs.Float64Var(&cfg.ConfidenceThreshold, "confidence-threshold", cfg.ConfidenceThreshold, "Classifier threshold to label as flaky")
 	fs.BoolVar(&cfg.TiDBEnabled, "tidb", cfg.TiDBEnabled, "Enable TiDB state store")
+	fs.DurationVar(&cfg.RunInterval, "interval", cfg.RunInterval, "Interval to run continuously (0 for run once)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
