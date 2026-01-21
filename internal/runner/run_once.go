@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/okJiang/flaky-test-cleaner/internal/classify"
@@ -192,6 +193,10 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 		}
 	}
 
+	if err := checkApprovalSignals(ctx, cfg, ghIssue, st); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -232,4 +237,56 @@ func runInitialAnalysis(
 		return err
 	}
 	return st.RecordAudit(ctx, "issueagent.initial_analysis", fmt.Sprintf("issue/%d", issueNumber), "success", "")
+}
+
+func checkApprovalSignals(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store) error {
+	const batchSize = 20
+	fps, err := st.ListFingerprintsByState(ctx, store.StateWaitingForSignal, batchSize)
+	if err != nil {
+		return err
+	}
+	for _, fp := range fps {
+		if fp.IssueNumber == 0 {
+			continue
+		}
+		approved, reason, err := issueHasApproval(ctx, cfg, gh, fp.IssueNumber)
+		if err != nil {
+			return err
+		}
+		if !approved {
+			continue
+		}
+		log.Printf("approval detected for issue %d (fingerprint %s): %s", fp.IssueNumber, fp.Fingerprint, reason)
+		if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StateApprovedToFix); err != nil {
+			return err
+		}
+		if err := st.RecordAudit(ctx, "signal.approval", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func issueHasApproval(ctx context.Context, cfg config.Config, gh *github.Client, issueNumber int) (bool, string, error) {
+	issue, err := gh.GetIssue(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber)
+	if err != nil {
+		return false, "", err
+	}
+	for _, lbl := range issue.Labels {
+		if strings.EqualFold(lbl.Name, "flaky-test-cleaner/ai-fix-approved") {
+			return true, "label flaky-test-cleaner/ai-fix-approved present", nil
+		}
+	}
+	comments, err := gh.ListIssueComments(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber, github.ListIssueCommentsOptions{
+		PerPage: 50,
+	})
+	if err != nil {
+		return false, "", err
+	}
+	for _, comment := range comments {
+		if strings.Contains(strings.ToLower(comment.Body), "/ai-fix") {
+			return true, fmt.Sprintf("comment by %s triggered /ai-fix", comment.User.Login), nil
+		}
+	}
+	return false, "", nil
 }

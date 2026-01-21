@@ -92,6 +92,7 @@ type Store interface {
 	LinkIssue(ctx context.Context, fingerprint string, issueNumber int) error
 	UpdateFingerprintState(ctx context.Context, fingerprint string, next FingerprintState) error
 	RecordAudit(ctx context.Context, action, target, result, errorMessage string) error
+	ListFingerprintsByState(ctx context.Context, state FingerprintState, limit int) ([]FingerprintRecord, error)
 	Close() error
 }
 
@@ -207,6 +208,26 @@ func (m *Memory) Close() error { return nil }
 
 func (m *Memory) RecordAudit(ctx context.Context, action, target, result, errorMessage string) error {
 	return nil
+}
+
+func (m *Memory) ListFingerprintsByState(ctx context.Context, state FingerprintState, limit int) ([]FingerprintRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []FingerprintRecord
+	if limit <= 0 {
+		limit = len(m.fps)
+	}
+	for _, rec := range m.fps {
+		rec = ensureStateDefaults(rec)
+		if rec.State != state {
+			continue
+		}
+		out = append(out, rec)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 func ensureStateDefaults(rec FingerprintRecord) FingerprintRecord {
@@ -412,6 +433,29 @@ func (t *TiDBStore) RecordAudit(ctx context.Context, action, target, result, err
 	_, err := t.db.ExecContext(ctx, `INSERT INTO audit_log (action, target, result, error_message) VALUES (?,?,?,?)`,
 		action, target, result, errorMessage)
 	return err
+}
+
+func (t *TiDBStore) ListFingerprintsByState(ctx context.Context, state FingerprintState, limit int) ([]FingerprintRecord, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at, state, state_changed_at
+		FROM fingerprints WHERE state = ? ORDER BY last_seen_at DESC LIMIT ?`
+	rows, err := t.db.QueryContext(ctx, query, state, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FingerprintRecord
+	for rows.Next() {
+		var rec FingerprintRecord
+		if err := rows.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.FirstSeenAt, &rec.LastSeenAt, &rec.State, &rec.StateChangedAt); err != nil {
+			return nil, err
+		}
+		rec = ensureStateDefaults(rec)
+		out = append(out, rec)
+	}
+	return out, rows.Err()
 }
 
 func (t *TiDBStore) ensureDatabase(ctx context.Context) error {

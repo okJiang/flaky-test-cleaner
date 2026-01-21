@@ -123,9 +123,14 @@ func (c *Client) DownloadJobLogs(ctx context.Context, owner, repo string, jobID 
 }
 
 type Issue struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
+	Number int          `json:"number"`
+	Title  string       `json:"title"`
+	Body   string       `json:"body"`
+	Labels []IssueLabel `json:"labels"`
+}
+
+type IssueLabel struct {
+	Name string `json:"name"`
 }
 
 type CreateIssueInput struct {
@@ -188,6 +193,34 @@ func (c *Client) CreateIssueComment(ctx context.Context, owner, repo string, num
 	}
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
 	return c.doJSON(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
+type IssueComment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      User      `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type User struct {
+	Login string `json:"login"`
+}
+
+type ListIssueCommentsOptions struct {
+	PerPage int
+}
+
+func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, number int, opts ListIssueCommentsOptions) ([]IssueComment, error) {
+	query := url.Values{}
+	if opts.PerPage > 0 {
+		query.Set("per_page", strconv.Itoa(opts.PerPage))
+	}
+	var res []IssueComment
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (c *Client) EnsureLabels(ctx context.Context, owner, repo string, labels []string) error {

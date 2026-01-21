@@ -93,12 +93,12 @@
 目标：实现 SPEC Milestone C 的许可闸门、worktree 租赁与 FixAgent 自动开 PR。
 
 子任务（初稿）：
-- [ ] 4.1 RepoWorkspaceManager
+- [x] 4.1 RepoWorkspaceManager
 	- 配置：新增 `FTC_WORKSPACE_MIRROR`（默认 `cache/tikv-pd.git`）、`FTC_WORKSPACE_WORKTREES`（默认 `worktrees`）、`FTC_WORKSPACE_MAX`（默认 2），以及自动推导的 remote URL（`https://github.com/<owner>/<repo>.git`）。
 	- 能力：`EnsureMirror`（不存在则 `git clone --mirror`，存在则 `git fetch --prune`）；`CatFile` / `ListTree` / `Grep` 等对 mirror 的只读操作。
 	- Worktree 租赁：`Acquire(ctx, name, sha)` 创建 `git worktree add --force`，限制并发数；`Release` 触发 `git worktree remove --force` 并清理磁盘；dry-run/错误需返回明确信息。
 	- 测试：使用临时 git 仓库验证 clone/fetch、read-only 操作、租赁（含限流）以及 Release 行为。
-- [ ] 4.2 许可信号监听：解析 `flaky-test-cleaner/ai-fix-approved` label 及 `/ai-fix` 评论，驱动状态转移到 `APPROVED_TO_FIX`。
+- [x] 4.2 许可信号监听：解析 `flaky-test-cleaner/ai-fix-approved` label 及 `/ai-fix` 评论，驱动状态转移到 `APPROVED_TO_FIX`。
 - [ ] 4.3 FixAgent MVP：在允许信号下 checkout 专用分支，生成最小 patch（先聚焦 test 稳定性），并通过 GitHub API 创建 PR。
 
 ### Progress Log
@@ -107,3 +107,5 @@
 - 2026-01-21：完成 Task 3.1（Fingerprint state 存储扩展 + API）。
 - 2026-01-21：完成 Task 3.2（IssueAgent 初次分析模板与测试）。
 - 2026-01-21：完成 Task 3.3（Runner 集成 IssueAgent + GitHub 评论 + audit log）。
+- 2026-01-21：完成 Task 4.1（RepoWorkspaceManager 基础设施）。
+- 2026-01-21：完成 Task 4.2（许可信号监听与状态推进）。
