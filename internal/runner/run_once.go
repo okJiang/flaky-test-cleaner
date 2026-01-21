@@ -114,14 +114,16 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 				}
 
 				if err := st.UpsertFingerprint(ctx, store.FingerprintRecord{
-					Fingerprint: fp,
-					Repo:        cfg.GitHubOwner + "/" + cfg.GitHubRepo,
-					TestName:    occ.TestName,
-					Framework:   occ.Framework,
-					Class:       string(c.Class),
-					Confidence:  c.Confidence,
-					FirstSeenAt: occ.OccurredAt,
-					LastSeenAt:  occ.OccurredAt,
+					Fingerprint:    fp,
+					Repo:           cfg.GitHubOwner + "/" + cfg.GitHubRepo,
+					TestName:       occ.TestName,
+					Framework:      occ.Framework,
+					Class:          string(c.Class),
+					Confidence:     c.Confidence,
+					State:          store.StateDiscovered,
+					StateChangedAt: occ.OccurredAt,
+					FirstSeenAt:    occ.OccurredAt,
+					LastSeenAt:     occ.OccurredAt,
 				}); err != nil {
 					return err
 				}
@@ -155,7 +157,7 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 				if change.Noop {
 					continue
 				}
-				
+
 				if cfg.DryRun {
 					log.Printf("dry-run issue update fingerprint=%s title=%q labels=%v", fp, change.Title, change.Labels)
 				}

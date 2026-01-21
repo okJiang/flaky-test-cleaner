@@ -70,6 +70,34 @@
 - `--dry-run` 可打印将要创建/更新的 issue 与指纹
 - 连上真实 GitHub token + TiDB 参数时，可成功创建/更新 issue（可在 README 给出最小运行指南）
 
+### Task 3 — IssueAgent 分析与状态机推进（进行中）
+
+目标：实现 SPEC Milestone B 的“IssueAgent 初次分析”能力，并把指纹状态机从 `ISSUE_OPEN` 推进到 `TRIAGED/WAITING_FOR_SIGNAL`。
+
+子任务拆分：
+- [x] 3.1 状态存储扩展
+	- 在 `store.FingerprintRecord` 与 TiDB `fingerprints` 表中新增 `state`、`state_changed_at` 字段，默认 `DISCOVERED`。
+	- 暴露 `UpdateFingerprintState` API，约束 `DISCOVERED → ISSUE_OPEN → TRIAGED → WAITING_FOR_SIGNAL` 的前缀路径，禁止 `APPROVED_TO_FIX` 之后回退。
+	- Memory store 同步实现，补充单元测试覆盖状态迁移。
+- [ ] 3.2 IssueAgent 初次分析
+	- 新建 `internal/issueagent`（或同等命名）模块，输入：fingerprint record + 最近 occurrences + classification。
+	- 输出：Markdown 评论，包含根因假设（基于 heuristics/occurrence 关键词）、复现步骤、建议修复路径、风险提示（参考 SPEC §9.2）。
+	- Comment 使用 HTML block tag 标记，以便未来幂等更新；提供最小测试验证模板渲染。
+- [ ] 3.3 Runner 集成
+	- 在 issue 创建/更新后，若 fingerprint state= `ISSUE_OPEN`，调用 IssueAgent 发布评论并把状态更新为 `TRIAGED`，随后立即进入 `WAITING_FOR_SIGNAL`。
+	- Dry-run 下打印将要发布的评论摘要；真实运行需写入 GitHub 评论并记录 state。
+	- 将 IssueAgent 的动作写入 TiDB `audit_log`（action=`issueagent.initial_analysis`）以备观测。
+
+### Task 4 — FixAgent 与 RepoWorkspace（待规划）
+
+目标：实现 SPEC Milestone C 的许可闸门、worktree 租赁与 FixAgent 自动开 PR。
+
+子任务（初稿）：
+- [ ] 4.1 RepoWorkspaceManager：mirror + worktree 生命周期管理；封装 `git show/grep/worktree` 的读写接口。
+- [ ] 4.2 许可信号监听：解析 `flaky-test-cleaner/ai-fix-approved` label 及 `/ai-fix` 评论，驱动状态转移到 `APPROVED_TO_FIX`。
+- [ ] 4.3 FixAgent MVP：在允许信号下 checkout 专用分支，生成最小 patch（先聚焦 test 稳定性），并通过 GitHub API 创建 PR。
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
+- 2026-01-21：完成 Task 3.1（Fingerprint state 存储扩展 + API）。

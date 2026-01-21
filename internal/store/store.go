@@ -16,17 +16,71 @@ import (
 	"github.com/okJiang/flaky-test-cleaner/internal/extract"
 )
 
+type FingerprintState string
+
+const (
+	StateUnknown          FingerprintState = ""
+	StateDiscovered       FingerprintState = "DISCOVERED"
+	StateIssueOpen        FingerprintState = "ISSUE_OPEN"
+	StateTriaged          FingerprintState = "TRIAGED"
+	StateWaitingForSignal FingerprintState = "WAITING_FOR_SIGNAL"
+	StateNeedsUpdate      FingerprintState = "NEEDS_UPDATE"
+	StateApprovedToFix    FingerprintState = "APPROVED_TO_FIX"
+	StatePROpen           FingerprintState = "PR_OPEN"
+	StatePRNeedsChanges   FingerprintState = "PR_NEEDS_CHANGES"
+	StatePRUpdating       FingerprintState = "PR_UPDATING"
+	StateMerged           FingerprintState = "MERGED"
+	StateClosedWontFix    FingerprintState = "CLOSED_WONTFIX"
+)
+
+var errInvalidTransition = errors.New("invalid fingerprint state transition")
+
+var allowedTransitions = map[FingerprintState][]FingerprintState{
+	StateUnknown:          {StateDiscovered},
+	StateDiscovered:       {StateIssueOpen},
+	StateIssueOpen:        {StateTriaged, StateNeedsUpdate},
+	StateTriaged:          {StateWaitingForSignal, StateNeedsUpdate},
+	StateWaitingForSignal: {StateTriaged, StateApprovedToFix, StateClosedWontFix, StateNeedsUpdate},
+	StateNeedsUpdate:      {StateIssueOpen},
+	StateApprovedToFix:    {StatePROpen},
+	StatePROpen:           {StatePRNeedsChanges, StateMerged, StateClosedWontFix},
+	StatePRNeedsChanges:   {StatePRUpdating},
+	StatePRUpdating:       {StatePROpen},
+	StateMerged:           {},
+	StateClosedWontFix:    {},
+}
+
+func validateTransition(current, next FingerprintState) error {
+	if next == "" {
+		return fmt.Errorf("%w: next state empty", errInvalidTransition)
+	}
+	if current == "" {
+		current = StateDiscovered
+	}
+	if current == next {
+		return nil
+	}
+	for _, candidate := range allowedTransitions[current] {
+		if candidate == next {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s -> %s", errInvalidTransition, current, next)
+}
+
 type FingerprintRecord struct {
-	Fingerprint string
-	Repo        string
-	TestName    string
-	Framework   string
-	Class       string
-	Confidence  float64
-	IssueNumber int
-	PRNumber    int
-	FirstSeenAt time.Time
-	LastSeenAt  time.Time
+	Fingerprint    string
+	Repo           string
+	TestName       string
+	Framework      string
+	Class          string
+	Confidence     float64
+	IssueNumber    int
+	PRNumber       int
+	State          FingerprintState
+	StateChangedAt time.Time
+	FirstSeenAt    time.Time
+	LastSeenAt     time.Time
 }
 
 type Store interface {
@@ -36,6 +90,7 @@ type Store interface {
 	GetFingerprint(ctx context.Context, fingerprint string) (*FingerprintRecord, error)
 	ListRecentOccurrences(ctx context.Context, fingerprint string, limit int) ([]extract.Occurrence, error)
 	LinkIssue(ctx context.Context, fingerprint string, issueNumber int) error
+	UpdateFingerprintState(ctx context.Context, fingerprint string, next FingerprintState) error
 	Close() error
 }
 
@@ -80,9 +135,11 @@ func (m *Memory) UpsertFingerprint(ctx context.Context, rec FingerprintRecord) e
 		if rec.Repo != "" {
 			prev.Repo = rec.Repo
 		}
+		prev = ensureStateDefaults(prev)
 		m.fps[rec.Fingerprint] = prev
 		return nil
 	}
+	rec = ensureStateDefaults(rec)
 	m.fps[rec.Fingerprint] = rec
 	return nil
 }
@@ -94,6 +151,7 @@ func (m *Memory) GetFingerprint(ctx context.Context, fingerprint string) (*Finge
 	if !ok {
 		return nil, nil
 	}
+	rec = ensureStateDefaults(rec)
 	cpy := rec
 	return &cpy, nil
 }
@@ -124,7 +182,43 @@ func (m *Memory) LinkIssue(ctx context.Context, fingerprint string, issueNumber 
 	return nil
 }
 
+func (m *Memory) UpdateFingerprintState(ctx context.Context, fingerprint string, next FingerprintState) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.fps[fingerprint]
+	if !ok {
+		return errors.New("fingerprint not found")
+	}
+	rec = ensureStateDefaults(rec)
+	if err := validateTransition(rec.State, next); err != nil {
+		return err
+	}
+	if rec.State == next {
+		return nil
+	}
+	rec.State = next
+	rec.StateChangedAt = time.Now().UTC()
+	m.fps[fingerprint] = rec
+	return nil
+}
+
 func (m *Memory) Close() error { return nil }
+
+func ensureStateDefaults(rec FingerprintRecord) FingerprintRecord {
+	if rec.State == "" {
+		rec.State = StateDiscovered
+	}
+	if rec.StateChangedAt.IsZero() {
+		if !rec.LastSeenAt.IsZero() {
+			rec.StateChangedAt = rec.LastSeenAt
+		} else if !rec.FirstSeenAt.IsZero() {
+			rec.StateChangedAt = rec.FirstSeenAt
+		} else {
+			rec.StateChangedAt = time.Now().UTC()
+		}
+	}
+	return rec
+}
 
 type TiDBStore struct {
 	cfg config.Config
@@ -178,8 +272,12 @@ func (t *TiDBStore) Migrate(ctx context.Context) error {
 			issue_number INT NOT NULL DEFAULT 0,
 			pr_number INT NOT NULL DEFAULT 0,
 			first_seen_at TIMESTAMP NOT NULL,
-			last_seen_at TIMESTAMP NOT NULL
+			last_seen_at TIMESTAMP NOT NULL,
+			state VARCHAR(50) NOT NULL DEFAULT 'DISCOVERED',
+			state_changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS state VARCHAR(50) NOT NULL DEFAULT 'DISCOVERED'`,
+		`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`CREATE TABLE IF NOT EXISTS audit_log (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -221,9 +319,10 @@ func (t *TiDBStore) UpsertOccurrence(ctx context.Context, occ extract.Occurrence
 }
 
 func (t *TiDBStore) UpsertFingerprint(ctx context.Context, rec FingerprintRecord) error {
+	rec = ensureStateDefaults(rec)
 	query := `INSERT INTO fingerprints (
-		fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at
-	) VALUES (?,?,?,?,?,?,?,?,?,?)
+		fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at, state, state_changed_at
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 	ON DUPLICATE KEY UPDATE
 		repo = VALUES(repo),
 		test_name = VALUES(test_name),
@@ -235,22 +334,23 @@ func (t *TiDBStore) UpsertFingerprint(ctx context.Context, rec FingerprintRecord
 		first_seen_at = LEAST(first_seen_at, VALUES(first_seen_at)),
 		last_seen_at = GREATEST(last_seen_at, VALUES(last_seen_at))`
 	_, err := t.db.ExecContext(ctx, query,
-		rec.Fingerprint, rec.Repo, rec.TestName, rec.Framework, rec.Class, rec.Confidence, rec.IssueNumber, rec.PRNumber, rec.FirstSeenAt, rec.LastSeenAt,
+		rec.Fingerprint, rec.Repo, rec.TestName, rec.Framework, rec.Class, rec.Confidence, rec.IssueNumber, rec.PRNumber, rec.FirstSeenAt, rec.LastSeenAt, rec.State, rec.StateChangedAt,
 	)
 	return err
 }
 
 func (t *TiDBStore) GetFingerprint(ctx context.Context, fingerprint string) (*FingerprintRecord, error) {
-	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at
+	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at, state, state_changed_at
 		FROM fingerprints WHERE fingerprint = ?`
 	row := t.db.QueryRowContext(ctx, query, fingerprint)
 	var rec FingerprintRecord
-	if err := row.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.FirstSeenAt, &rec.LastSeenAt); err != nil {
+	if err := row.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.FirstSeenAt, &rec.LastSeenAt, &rec.State, &rec.StateChangedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	rec = ensureStateDefaults(rec)
 	return &rec, nil
 }
 
@@ -280,6 +380,24 @@ func (t *TiDBStore) ListRecentOccurrences(ctx context.Context, fingerprint strin
 
 func (t *TiDBStore) LinkIssue(ctx context.Context, fingerprint string, issueNumber int) error {
 	_, err := t.db.ExecContext(ctx, `UPDATE fingerprints SET issue_number = ? WHERE fingerprint = ?`, issueNumber, fingerprint)
+	return err
+}
+
+func (t *TiDBStore) UpdateFingerprintState(ctx context.Context, fingerprint string, next FingerprintState) error {
+	rec, err := t.GetFingerprint(ctx, fingerprint)
+	if err != nil {
+		return err
+	}
+	if rec == nil {
+		return errors.New("fingerprint not found")
+	}
+	if err := validateTransition(rec.State, next); err != nil {
+		return err
+	}
+	if rec.State == next {
+		return nil
+	}
+	_, err = t.db.ExecContext(ctx, `UPDATE fingerprints SET state = ?, state_changed_at = ? WHERE fingerprint = ?`, next, time.Now().UTC(), fingerprint)
 	return err
 }
 
