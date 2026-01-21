@@ -3,6 +3,7 @@ package fingerprint
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"strings"
 )
 
@@ -25,7 +26,22 @@ func V1(in V1Input) string {
 
 
 func NormalizeErrorSignature(s string) string {
-	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
 	s = strings.ReplaceAll(s, "\r", "")
-	return s
+	s = strings.TrimSpace(s)
+	replacements := []*regexp.Regexp{
+		regexp.MustCompile(`0x[0-9a-fA-F]+`),
+		regexp.MustCompile(`:\d+`),
+		regexp.MustCompile(`\b\d+(?:\.\d+)?(ms|s|m|h)\b`),
+		regexp.MustCompile(`\b\d{4,}\b`),
+		regexp.MustCompile(`\b[0-9a-f]{7,40}\b`),
+	}
+	for _, re := range replacements {
+		s = re.ReplaceAllString(s, "X")
+	}
+	space := regexp.MustCompile(`\s+`)
+	s = space.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
 }
