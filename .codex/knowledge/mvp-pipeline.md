@@ -14,3 +14,4 @@
   - `Memory` store for dry-runs/tests.
   - `TiDBStore` migrates schema (tables `occurrences`, `fingerprints`, `audit_log`, `costs` per SPEC §10) and now keeps `state` + `state_changed_at` columns plus `Store.UpdateFingerprintState` guardrails (`DISCOVERED → ISSUE_OPEN → TRIAGED → WAITING_FOR_SIGNAL → ...`).
 - `internal/issue/issue.go` produces deterministic titles (`[flaky] <test> — <sig>`), wraps body sections in `<!-- FTC:NAME_START -->` comments, and ensures labels prefixed with `flaky-test-cleaner/`.
+- `internal/issueagent/issueagent.go` (Task 3.2) renders the initial AI analysis comment with guarded block markers, heuristic hypotheses (panic/timeout/race/network), reproduction commands (`go test ./... -run '^TestName$' -count=30 -race`), next actions, risk notes, and evidence bullets.

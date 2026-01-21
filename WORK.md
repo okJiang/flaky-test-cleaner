@@ -79,7 +79,7 @@
 	- 在 `store.FingerprintRecord` 与 TiDB `fingerprints` 表中新增 `state`、`state_changed_at` 字段，默认 `DISCOVERED`。
 	- 暴露 `UpdateFingerprintState` API，约束 `DISCOVERED → ISSUE_OPEN → TRIAGED → WAITING_FOR_SIGNAL` 的前缀路径，禁止 `APPROVED_TO_FIX` 之后回退。
 	- Memory store 同步实现，补充单元测试覆盖状态迁移。
-- [ ] 3.2 IssueAgent 初次分析
+- [x] 3.2 IssueAgent 初次分析
 	- 新建 `internal/issueagent`（或同等命名）模块，输入：fingerprint record + 最近 occurrences + classification。
 	- 输出：Markdown 评论，包含根因假设（基于 heuristics/occurrence 关键词）、复现步骤、建议修复路径、风险提示（参考 SPEC §9.2）。
 	- Comment 使用 HTML block tag 标记，以便未来幂等更新；提供最小测试验证模板渲染。
@@ -101,3 +101,4 @@
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
 - 2026-01-21：完成 Task 3.1（Fingerprint state 存储扩展 + API）。
+- 2026-01-21：完成 Task 3.2（IssueAgent 初次分析模板与测试）。
