@@ -57,8 +57,8 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	extractor := extract.NewGoTestExtractor()
 	classifier := classify.NewHeuristic(cfg.ConfidenceThreshold)
 	issueMgr := issue.NewManager(issue.Options{
-		Owner: cfg.GitHubOwner,
-		Repo:  cfg.GitHubRepo,
+		Owner:  cfg.GitHubOwner,
+		Repo:   cfg.GitHubRepo,
 		DryRun: cfg.DryRun,
 	})
 
@@ -144,8 +144,8 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 				}
 
 				change, err := issueMgr.PlanIssueUpdate(issue.PlanInput{
-					Fingerprint: *fpRec,
-					Occurrences: recent,
+					Fingerprint:    *fpRec,
+					Occurrences:    recent,
 					Classification: c,
 				})
 				if err != nil {

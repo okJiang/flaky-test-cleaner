@@ -11,15 +11,15 @@ import (
 type Class string
 
 const (
-	ClassFlakyTest       Class = "flaky-test"
-	ClassInfraFlake      Class = "infra-flake"
+	ClassFlakyTest        Class = "flaky-test"
+	ClassInfraFlake       Class = "infra-flake"
 	ClassLikelyRegression Class = "likely-regression"
-	ClassUnknown         Class = "unknown"
+	ClassUnknown          Class = "unknown"
 )
 
 type Result struct {
-	Class      Class
-	Confidence float64
+	Class       Class
+	Confidence  float64
 	Explanation string
 }
 
@@ -89,10 +89,3 @@ func containsAny(text string, keywords []string) bool {
 	}
 	return false
 }
-
-
-
-
-
-
-

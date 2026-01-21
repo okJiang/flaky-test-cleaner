@@ -12,16 +12,6 @@ func mustContain(t string, sub string) bool {
 func TestNormalizeErrorSignature(t *testing.T) {
 	input := "panic: boom at file.go:1234 after 1.2s addr 0xabc123"
 
-
-
-
-
-
-
-
-
-
-
 	norm := NormalizeErrorSignature(input)
 	if mustContain(norm, "1234") {
 		t.Fatalf("expected line numbers removed, got %q", norm)

@@ -18,44 +18,7 @@ type Input struct {
 	OccurredAt time.Time
 
 	RawLogText string
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Occurrence struct {
 	Repo           string

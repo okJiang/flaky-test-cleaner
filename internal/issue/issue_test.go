@@ -30,7 +30,7 @@ func TestPlanIssueUpdateCreatesBody(t *testing.T) {
 			FirstSeenAt: time.Now().Add(-time.Hour),
 			LastSeenAt:  time.Now(),
 		},
-		Occurrences:     occ,
+		Occurrences:    occ,
 		Classification: classify.Result{Class: classify.ClassFlakyTest, Confidence: 0.8},
 	})
 	if err != nil {

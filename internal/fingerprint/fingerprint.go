@@ -20,11 +20,6 @@ func V1(in V1Input) string {
 	return hex.EncodeToString(h[:])
 }
 
-
-
-
-
-
 func NormalizeErrorSignature(s string) string {
 	if s == "" {
 		return s

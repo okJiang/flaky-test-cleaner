@@ -13,8 +13,8 @@ import (
 )
 
 type Options struct {
-	Owner string
-	Repo  string
+	Owner  string
+	Repo   string
 	DryRun bool
 }
 
@@ -25,18 +25,18 @@ type Manager struct {
 func NewManager(opts Options) *Manager { return &Manager{opts: opts} }
 
 type PlanInput struct {
-	Fingerprint store.FingerprintRecord
-	Occurrences []extract.Occurrence
+	Fingerprint    store.FingerprintRecord
+	Occurrences    []extract.Occurrence
 	Classification classify.Result
 }
 
 type PlannedChange struct {
-	Noop bool
-	Create bool
+	Noop        bool
+	Create      bool
 	IssueNumber int
-	Title string
-	Body string
-	Labels []string
+	Title       string
+	Body        string
+	Labels      []string
 }
 
 func (m *Manager) PlanIssueUpdate(in PlanInput) (PlannedChange, error) {

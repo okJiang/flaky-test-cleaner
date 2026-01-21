@@ -38,9 +38,9 @@ type Workflow struct {
 }
 
 type WorkflowRun struct {
-	ID      int64  `json:"id"`
-	HTMLURL string `json:"html_url"`
-	HeadSHA string `json:"head_sha"`
+	ID        int64     `json:"id"`
+	HTMLURL   string    `json:"html_url"`
+	HeadSHA   string    `json:"head_sha"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
