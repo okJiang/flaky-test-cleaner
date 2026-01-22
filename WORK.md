@@ -115,7 +115,7 @@
 	- [x] 5.2.3 FixAgent：对 `PR_NEEDS_CHANGES` 指纹生成更新计划（写入/更新 TODO 文件）、创建/更新 PR 评论，并推进状态 `PR_NEEDS_CHANGES -> PR_UPDATING -> PR_OPEN`。
 	- [x] 5.2.4 审计与测试：写入 `audit_log`，为反馈提取与 comment 渲染增加单测。
 
-### Task 6 — Spec 对齐与工程改进（进行中）
+### Task 6 — Spec 对齐与工程改进（已完成）
 - [x] 6.1 PR 被关闭但未合并时，按 SPEC 状态机转移到 `CLOSED_WONTFIX`（而非 `PR_NEEDS_CHANGES`）。
 
 ### Progress Log
