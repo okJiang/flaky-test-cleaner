@@ -115,6 +115,9 @@
 	- [x] 5.2.3 FixAgent：对 `PR_NEEDS_CHANGES` 指纹生成更新计划（写入/更新 TODO 文件）、创建/更新 PR 评论，并推进状态 `PR_NEEDS_CHANGES -> PR_UPDATING -> PR_OPEN`。
 	- [x] 5.2.4 审计与测试：写入 `audit_log`，为反馈提取与 comment 渲染增加单测。
 
+### Task 6 — Spec 对齐与工程改进（进行中）
+- [x] 6.1 PR 被关闭但未合并时，按 SPEC 状态机转移到 `CLOSED_WONTFIX`（而非 `PR_NEEDS_CHANGES`）。
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
@@ -128,3 +131,5 @@
 - 2026-01-22：完成 Task 4.3.3（FixAgent 自动创建 PR）与 Task 5.1（PR 状态检测与 issue 自动归档）。
 - 2026-01-22：开始 Task 5.2（Review 反馈响应）。
 - 2026-01-22：完成 Task 5.2（监听 review/CI 信号并自动 follow-up）。
+- 2026-01-22：开始 Task 6（Spec 对齐与工程改进）。
+- 2026-01-22：完成 Task 6.1（PR closed 状态与 SPEC 对齐）。

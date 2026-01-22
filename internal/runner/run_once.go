@@ -409,11 +409,11 @@ func finalizeMergedPR(ctx context.Context, cfg config.Config, gh *github.Client,
 }
 
 func handleClosedPR(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store, fp store.FingerprintRecord, pr github.PullRequest) error {
-	comment := fmt.Sprintf("PR #%d was closed without merge. Marking this fingerprint as needing updates.", pr.Number)
+	comment := fmt.Sprintf("PR #%d was closed without merge. Marking this fingerprint as CLOSED_WONTFIX.", pr.Number)
 	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, comment); err != nil {
 		return err
 	}
-	if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StatePRNeedsChanges); err != nil {
+	if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StateClosedWontFix); err != nil {
 		return err
 	}
 	return st.RecordAudit(ctx, "fixagent.pr_closed", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", fmt.Sprintf("pr#%d", pr.Number))
