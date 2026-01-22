@@ -233,6 +233,51 @@ type PullRequest struct {
 	State    string     `json:"state"`
 	Merged   bool       `json:"merged"`
 	MergedAt *time.Time `json:"merged_at"`
+	Head     PRHead     `json:"head"`
+}
+
+type PRHead struct {
+	Ref string `json:"ref"`
+	SHA string `json:"sha"`
+}
+
+type PullRequestReview struct {
+	ID          int64      `json:"id"`
+	State       string     `json:"state"`
+	Body        string     `json:"body"`
+	User        User       `json:"user"`
+	SubmittedAt *time.Time `json:"submitted_at"`
+}
+
+func (c *Client) ListPullRequestReviews(ctx context.Context, owner, repo string, number int) ([]PullRequestReview, error) {
+	var res []PullRequestReview
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+type CombinedStatus struct {
+	State    string   `json:"state"`
+	Statuses []Status `json:"statuses"`
+}
+
+type Status struct {
+	State       string    `json:"state"`
+	Context     string    `json:"context"`
+	Description string    `json:"description"`
+	TargetURL   string    `json:"target_url"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (c *Client) GetCombinedStatus(ctx context.Context, owner, repo, ref string) (CombinedStatus, error) {
+	var res CombinedStatus
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/status", owner, repo, ref)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &res); err != nil {
+		return CombinedStatus{}, err
+	}
+	return res, nil
 }
 
 type CreatePullRequestInput struct {

@@ -225,6 +225,9 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	if err := runFixAgent(ctx, fixAgent, st, ghIssue); err != nil {
 		return err
 	}
+	if err := handlePRFeedbackLoop(ctx, cfg, ghIssue, st, fixAgent); err != nil {
+		return err
+	}
 	if err := checkPRStatus(ctx, cfg, ghIssue, st); err != nil {
 		return err
 	}
@@ -414,4 +417,92 @@ func handleClosedPR(ctx context.Context, cfg config.Config, gh *github.Client, s
 		return err
 	}
 	return st.RecordAudit(ctx, "fixagent.pr_closed", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", fmt.Sprintf("pr#%d", pr.Number))
+}
+
+func handlePRFeedbackLoop(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store, agent *fixagent.Agent) error {
+	if cfg.DryRun {
+		return nil
+	}
+
+	// 1) Detect feedback signals on PR_OPEN and move to PR_NEEDS_CHANGES.
+	fps, err := st.ListFingerprintsByState(ctx, store.StatePROpen, 10)
+	if err != nil {
+		return err
+	}
+	for _, fp := range fps {
+		if fp.PRNumber == 0 {
+			continue
+		}
+		fb, err := buildPRFeedback(ctx, cfg, gh, fp.PRNumber)
+		if err != nil {
+			return err
+		}
+		if !fb.NeedsUpdate() {
+			continue
+		}
+		log.Printf("pr feedback detected for pr#%d fingerprint=%s", fp.PRNumber, fp.Fingerprint)
+		if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StatePRNeedsChanges); err != nil {
+			return err
+		}
+		_ = st.RecordAudit(ctx, "signal.pr_feedback", fmt.Sprintf("pr/%d", fp.PRNumber), "success", "")
+	}
+
+	// 2) For PR_NEEDS_CHANGES, run FixAgent follow-up and cycle PR_UPDATING -> PR_OPEN.
+	fps, err = st.ListFingerprintsByState(ctx, store.StatePRNeedsChanges, 10)
+	if err != nil {
+		return err
+	}
+	for _, fp := range fps {
+		if fp.PRNumber == 0 {
+			continue
+		}
+		fb, err := buildPRFeedback(ctx, cfg, gh, fp.PRNumber)
+		if err != nil {
+			return err
+		}
+		if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StatePRUpdating); err != nil {
+			return err
+		}
+		if _, err := agent.FollowUp(ctx, fp, fb); err != nil {
+			_ = st.RecordAudit(ctx, "fixagent.review_followup", fmt.Sprintf("pr/%d", fp.PRNumber), "error", err.Error())
+			return err
+		}
+		if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StatePROpen); err != nil {
+			return err
+		}
+		_ = st.RecordAudit(ctx, "fixagent.review_followup", fmt.Sprintf("pr/%d", fp.PRNumber), "success", "")
+	}
+	return nil
+}
+
+func buildPRFeedback(ctx context.Context, cfg config.Config, gh *github.Client, prNumber int) (fixagent.PRFeedback, error) {
+	pr, err := gh.GetPullRequest(ctx, cfg.GitHubOwner, cfg.GitHubRepo, prNumber)
+	if err != nil {
+		return fixagent.PRFeedback{}, err
+	}
+	reviews, err := gh.ListPullRequestReviews(ctx, cfg.GitHubOwner, cfg.GitHubRepo, prNumber)
+	if err != nil {
+		return fixagent.PRFeedback{}, err
+	}
+	var changesRequested []github.PullRequestReview
+	for _, r := range reviews {
+		if strings.EqualFold(strings.TrimSpace(r.State), "CHANGES_REQUESTED") {
+			changesRequested = append(changesRequested, r)
+		}
+	}
+	status := github.CombinedStatus{}
+	if strings.TrimSpace(pr.Head.SHA) != "" {
+		st, err := gh.GetCombinedStatus(ctx, cfg.GitHubOwner, cfg.GitHubRepo, pr.Head.SHA)
+		if err != nil {
+			return fixagent.PRFeedback{}, err
+		}
+		status = st
+	}
+	return fixagent.PRFeedback{
+		PRNumber:         pr.Number,
+		PRURL:            pr.HTMLURL,
+		HeadSHA:          pr.Head.SHA,
+		ChangesRequested: changesRequested,
+		CombinedStatus:   status,
+	}, nil
 }

@@ -48,6 +48,10 @@ Implement FixAgent “review follow-up” loop:
   - Reads `PR_OPEN` fingerprints, checks review+CI signals, transitions to `PR_NEEDS_CHANGES` when necessary
   - Reads `PR_NEEDS_CHANGES` fingerprints, invokes FixAgent follow-up and drives `PR_UPDATING -> PR_OPEN`
 
+Implemented functions:
+- `handlePRFeedbackLoop`
+- `buildPRFeedback`
+
 ### FixAgent
 - File: `internal/fixagent/agent.go`
 - Add a follow-up method that:
@@ -56,3 +60,9 @@ Implement FixAgent “review follow-up” loop:
   - Commits + pushes a small update commit
   - Posts/updates a PR comment using a guarded block marker (e.g. `FTC:REVIEW_RESPONSE_*`)
   - Records audit log events
+
+Implemented symbols:
+- `Agent.FollowUp`
+- `PRFeedback` (+ `NeedsUpdate()`)
+- `renderFeedbackChecklist`
+- `buildFollowUpComment`
