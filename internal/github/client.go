@@ -143,6 +143,7 @@ type UpdateIssueInput struct {
 	Title  *string
 	Body   *string
 	Labels []string
+	State  *string
 }
 
 func (c *Client) GetIssue(ctx context.Context, owner, repo string, number int) (Issue, error) {
@@ -178,6 +179,9 @@ func (c *Client) UpdateIssue(ctx context.Context, owner, repo string, number int
 	}
 	if in.Labels != nil {
 		payload["labels"] = in.Labels
+	}
+	if in.State != nil {
+		payload["state"] = *in.State
 	}
 	var res Issue
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d", owner, repo, number)
@@ -224,8 +228,11 @@ func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, numb
 }
 
 type PullRequest struct {
-	Number  int    `json:"number"`
-	HTMLURL string `json:"html_url"`
+	Number   int        `json:"number"`
+	HTMLURL  string     `json:"html_url"`
+	State    string     `json:"state"`
+	Merged   bool       `json:"merged"`
+	MergedAt *time.Time `json:"merged_at"`
 }
 
 type CreatePullRequestInput struct {
@@ -263,6 +270,15 @@ func (c *Client) AddIssueLabels(ctx context.Context, owner, repo string, number 
 	}
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels", owner, repo, number)
 	return c.doJSON(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
+func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (PullRequest, error) {
+	var pr PullRequest
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &pr); err != nil {
+		return PullRequest{}, err
+	}
+	return pr, nil
 }
 
 func (c *Client) EnsureLabels(ctx context.Context, owner, repo string, labels []string) error {

@@ -107,6 +107,10 @@
 		- 通过 GitHub API 创建 PR，并在 issue 及 TiDB store 中记录 PR 编号。
 		- state: `PR_OPEN` -> `PR_UPDATING` -> `PR_OPEN`，并打上 `flaky-test-cleaner/ai-pr-open` label。
 
+### Task 5 — Review Loop + Merge
+- [x] 5.1 PR 状态检测：轮询 `PR_OPEN` 指纹关联的 PR，若已 merge 则自动评论、关闭 issue 并将 state 置为 `MERGED`；若被关闭但未合并则标记 `PR_NEEDS_CHANGES`。
+- [ ] 5.2 Review 反馈响应：监听 review comments / CI 失败，生成 TODO 与回复，并驱动 state `PR_NEEDS_CHANGES -> PR_UPDATING`。
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
@@ -117,3 +121,4 @@
 - 2026-01-21：完成 Task 4.2（许可信号监听与状态推进）。
 - 2026-01-21：完成 Task 4.3.1（FixAgent scaffolding）。
 - 2026-01-21：完成 Task 4.3.2（Patch 构建与最小验证钩子）。
+- 2026-01-22：完成 Task 4.3.3（FixAgent 自动创建 PR）与 Task 5.1（PR 状态检测与 issue 自动归档）。

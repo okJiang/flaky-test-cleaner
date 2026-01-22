@@ -34,6 +34,7 @@ Environment variables:
 - `FTC_REQUEST_TIMEOUT` (default `30s`)
 - `FTC_RUN_INTERVAL` (default `0`, run once)
 - `FTC_TIDB_ENABLED` (default `false`)
+- `FTC_BASE_BRANCH` (default `main`, branch used for opening PRs)
 - `FTC_WORKSPACE_MIRROR` (default `cache/tikv-pd.git`, bare mirror path)
 - `FTC_WORKSPACE_WORKTREES` (default `worktrees`, directory for git worktrees)
 - `FTC_WORKSPACE_MAX` (default `2`, max concurrent worktrees)

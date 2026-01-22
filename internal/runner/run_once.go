@@ -79,12 +79,13 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	fixAgent, err := fixagent.New(fixagent.Options{
-		Owner:     cfg.GitHubOwner,
-		Repo:      cfg.GitHubRepo,
-		DryRun:    cfg.DryRun,
-		GitHub:    ghIssue,
-		Workspace: wsManager,
-		Store:     st,
+		Owner:      cfg.GitHubOwner,
+		Repo:       cfg.GitHubRepo,
+		DryRun:     cfg.DryRun,
+		GitHub:     ghIssue,
+		Workspace:  wsManager,
+		Store:      st,
+		BaseBranch: cfg.GitHubBaseBranch,
 	})
 	if err != nil {
 		return err
@@ -224,6 +225,9 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	if err := runFixAgent(ctx, fixAgent, st, ghIssue); err != nil {
 		return err
 	}
+	if err := checkPRStatus(ctx, cfg, ghIssue, st); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -342,4 +346,72 @@ func runFixAgent(ctx context.Context, agent *fixagent.Agent, st store.Store, gh 
 		}
 	}
 	return nil
+}
+
+func checkPRStatus(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store) error {
+	states := []store.FingerprintState{
+		store.StatePROpen,
+		store.StatePRNeedsChanges,
+		store.StatePRUpdating,
+	}
+	for _, state := range states {
+		fps, err := st.ListFingerprintsByState(ctx, state, 10)
+		if err != nil {
+			return err
+		}
+		for _, fp := range fps {
+			if fp.PRNumber == 0 {
+				continue
+			}
+			pr, err := gh.GetPullRequest(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.PRNumber)
+			if err != nil {
+				return err
+			}
+			if isMerged(pr) {
+				if err := finalizeMergedPR(ctx, cfg, gh, st, fp, pr); err != nil {
+					return err
+				}
+				continue
+			}
+			if pr.State == "closed" {
+				if err := handleClosedPR(ctx, cfg, gh, st, fp, pr); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isMerged(pr github.PullRequest) bool {
+	if pr.Merged {
+		return true
+	}
+	return pr.MergedAt != nil && !pr.MergedAt.IsZero()
+}
+
+func finalizeMergedPR(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store, fp store.FingerprintRecord, pr github.PullRequest) error {
+	comment := fmt.Sprintf("PR #%d has been merged. Closing this issue and marking the fingerprint as resolved.", pr.Number)
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, comment); err != nil {
+		return err
+	}
+	stateClosed := "closed"
+	if _, err := gh.UpdateIssue(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, github.UpdateIssueInput{State: &stateClosed}); err != nil {
+		return err
+	}
+	if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StateMerged); err != nil {
+		return err
+	}
+	return st.RecordAudit(ctx, "fixagent.pr_merged", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", fmt.Sprintf("pr#%d", pr.Number))
+}
+
+func handleClosedPR(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store, fp store.FingerprintRecord, pr github.PullRequest) error {
+	comment := fmt.Sprintf("PR #%d was closed without merge. Marking this fingerprint as needing updates.", pr.Number)
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, comment); err != nil {
+		return err
+	}
+	if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StatePRNeedsChanges); err != nil {
+		return err
+	}
+	return st.RecordAudit(ctx, "fixagent.pr_closed", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", fmt.Sprintf("pr#%d", pr.Number))
 }

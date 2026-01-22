@@ -17,12 +17,13 @@ import (
 )
 
 type Options struct {
-	Owner     string
-	Repo      string
-	DryRun    bool
-	GitHub    *github.Client
-	Workspace *workspace.Manager
-	Store     store.Store
+	Owner      string
+	Repo       string
+	DryRun     bool
+	GitHub     *github.Client
+	Workspace  *workspace.Manager
+	Store      store.Store
+	BaseBranch string
 }
 
 type Agent struct {
@@ -38,6 +39,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.Store == nil {
 		return nil, fmt.Errorf("fixagent requires store")
+	}
+	if strings.TrimSpace(opts.BaseBranch) == "" {
+		return nil, fmt.Errorf("fixagent requires base branch")
 	}
 	return &Agent{opts: opts}, nil
 }
@@ -106,7 +110,7 @@ func (a *Agent) Attempt(ctx context.Context, fp store.FingerprintRecord, occ []e
 	pr, err := a.opts.GitHub.CreatePullRequest(ctx, a.opts.Owner, a.opts.Repo, github.CreatePullRequestInput{
 		Title: fmt.Sprintf("[AI] Stabilize %s", safe(fp.TestName)),
 		Head:  branch,
-		Base:  "master",
+		Base:  a.opts.BaseBranch,
 		Body:  body,
 	})
 	if err != nil {
