@@ -223,6 +223,48 @@ func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, numb
 	return res, nil
 }
 
+type PullRequest struct {
+	Number  int    `json:"number"`
+	HTMLURL string `json:"html_url"`
+}
+
+type CreatePullRequestInput struct {
+	Title string
+	Head  string
+	Base  string
+	Body  string
+	Draft bool
+}
+
+func (c *Client) CreatePullRequest(ctx context.Context, owner, repo string, in CreatePullRequestInput) (PullRequest, error) {
+	payload := map[string]any{
+		"title": in.Title,
+		"head":  in.Head,
+		"base":  in.Base,
+		"body":  in.Body,
+	}
+	if in.Draft {
+		payload["draft"] = true
+	}
+	var pr PullRequest
+	path := fmt.Sprintf("/repos/%s/%s/pulls", owner, repo)
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, payload, &pr); err != nil {
+		return PullRequest{}, err
+	}
+	return pr, nil
+}
+
+func (c *Client) AddIssueLabels(ctx context.Context, owner, repo string, number int, labels []string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+	payload := map[string]any{
+		"labels": labels,
+	}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels", owner, repo, number)
+	return c.doJSON(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
 func (c *Client) EnsureLabels(ctx context.Context, owner, repo string, labels []string) error {
 	for _, label := range labels {
 		if strings.TrimSpace(label) == "" {

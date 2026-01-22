@@ -44,6 +44,8 @@ func New(opts Options) (*Agent, error) {
 
 type AttemptResult struct {
 	CommentBody string
+	BranchName  string
+	PRNumber    int
 }
 
 func (a *Agent) Attempt(ctx context.Context, fp store.FingerprintRecord, occ []extract.Occurrence) (AttemptResult, error) {
@@ -78,9 +80,10 @@ func (a *Agent) Attempt(ctx context.Context, fp store.FingerprintRecord, occ []e
 		testSummary = fmt.Sprintf("go test ./... succeeded:\n%s", summary)
 	}
 
+	branch := fmt.Sprintf("ai/fix/%s", shortBranch(fp.Fingerprint))
 	body := buildPreparationComment(fp, occ, lease.Path, testSummary)
 	if a.opts.DryRun {
-		return AttemptResult{CommentBody: body}, nil
+		return AttemptResult{CommentBody: body, BranchName: branch}, nil
 	}
 	if err := a.opts.GitHub.CreateIssueComment(ctx, a.opts.Owner, a.opts.Repo, fp.IssueNumber, body); err != nil {
 		return AttemptResult{}, err
@@ -91,7 +94,38 @@ func (a *Agent) Attempt(ctx context.Context, fp store.FingerprintRecord, occ []e
 	if err := a.opts.Store.RecordAudit(ctx, "fixagent.prepare", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", lease.Path); err != nil {
 		return AttemptResult{}, err
 	}
-	return AttemptResult{CommentBody: body}, nil
+	if err := createBranch(ctx, lease.Path, branch); err != nil {
+		return AttemptResult{}, err
+	}
+	if err := commitAll(ctx, lease.Path, fmt.Sprintf("fix flaky test %s", safe(fp.TestName))); err != nil {
+		return AttemptResult{}, err
+	}
+	if err := pushBranch(ctx, lease.Path, branch); err != nil {
+		return AttemptResult{}, err
+	}
+	pr, err := a.opts.GitHub.CreatePullRequest(ctx, a.opts.Owner, a.opts.Repo, github.CreatePullRequestInput{
+		Title: fmt.Sprintf("[AI] Stabilize %s", safe(fp.TestName)),
+		Head:  branch,
+		Base:  "master",
+		Body:  body,
+	})
+	if err != nil {
+		return AttemptResult{}, err
+	}
+	if err := a.opts.GitHub.AddIssueLabels(ctx, a.opts.Owner, a.opts.Repo, fp.IssueNumber, []string{"flaky-test-cleaner/ai-pr-open"}); err != nil {
+		return AttemptResult{}, err
+	}
+	fpUpdate := fp
+	fpUpdate.PRNumber = pr.Number
+	fpUpdate.State = store.StatePROpen
+	fpUpdate.StateChangedAt = time.Now()
+	if err := a.opts.Store.UpsertFingerprint(ctx, fpUpdate); err != nil {
+		return AttemptResult{}, err
+	}
+	if err := a.opts.Store.RecordAudit(ctx, "fixagent.pr_create", fmt.Sprintf("issue/%d", fp.IssueNumber), "success", fmt.Sprintf("pr#%d", pr.Number)); err != nil {
+		return AttemptResult{}, err
+	}
+	return AttemptResult{CommentBody: body, BranchName: branch, PRNumber: pr.Number}, nil
 }
 
 func buildPreparationComment(fp store.FingerprintRecord, occ []extract.Occurrence, path string, testSummary string) string {
@@ -132,6 +166,36 @@ func runGoTest(ctx context.Context, dir string) (string, error) {
 	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func createBranch(ctx context.Context, dir, branch string) error {
+	cmd := exec.CommandContext(ctx, "git", "checkout", "-B", branch)
+	cmd.Dir = dir
+	return cmd.Run()
+}
+
+func commitAll(ctx context.Context, dir, message string) error {
+	cmd := exec.CommandContext(ctx, "git", "add", ".")
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	cmd = exec.CommandContext(ctx, "git", "commit", "--allow-empty", "-m", message)
+	cmd.Dir = dir
+	return cmd.Run()
+}
+
+func pushBranch(ctx context.Context, dir, branch string) error {
+	cmd := exec.CommandContext(ctx, "git", "push", "--set-upstream", "origin", branch)
+	cmd.Dir = dir
+	return cmd.Run()
+}
+
+func shortBranch(fp string) string {
+	if len(fp) <= 12 {
+		return fp
+	}
+	return fp[:12]
 }
 
 func shortSHA(sha string) string {

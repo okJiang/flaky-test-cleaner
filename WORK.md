@@ -102,7 +102,10 @@
 - [ ] 4.3 FixAgent MVP
 	- [x] 4.3.1 FixAgent scaffolding：接入 RepoWorkspaceManager & GitHub client，拿到 `APPROVED_TO_FIX` 指纹，落地基础注释/审计并推进状态到 `PR_OPEN`。
 	- [x] 4.3.2 Patch 构建与验证：在 worktree 内执行最小 go test / file edit钩子（Stub 可先记录 todo）。
-	- [ ] 4.3.3 PR 自动创建：生成分支、push、调用 GitHub API 创建 PR，记录链接并更新 state + labels。
+	- [ ] 4.3.3 PR 自动创建
+		- 监听 `PR_OPEN` 指纹，生成 `ai/fix/<fingerprint-short>` 分支，确保 workspace 中的变更会被 commit & push（先 stub，允许 dry-run）。
+		- 通过 GitHub API 创建 PR，并在 issue 及 TiDB store 中记录 PR 编号。
+		- state: `PR_OPEN` -> `PR_UPDATING` -> `PR_OPEN`，并打上 `flaky-test-cleaner/ai-pr-open` label。
 
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
