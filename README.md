@@ -25,6 +25,7 @@ go run ./cmd/flaky-test-cleaner --dry-run
 Environment variables:
 - `FTC_GITHUB_OWNER` (default `tikv`)
 - `FTC_GITHUB_REPO` (default `pd`)
+- `FTC_GITHUB_API_BASE_URL` (default `https://api.github.com`, useful for tests / GitHub Enterprise)
 - `FTC_GITHUB_READ_TOKEN` (required)
 - `FTC_GITHUB_ISSUE_TOKEN` (required unless `--dry-run`)
 - `FTC_WORKFLOW_NAME` (default `PD Test`)

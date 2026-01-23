@@ -21,24 +21,37 @@ import (
 	"github.com/okJiang/flaky-test-cleaner/internal/workspace"
 )
 
+type RunOnceDeps struct {
+	Store store.Store
+}
+
 func RunOnce(ctx context.Context, cfg config.Config) error {
+	return RunOnceWithDeps(ctx, cfg, RunOnceDeps{})
+}
+
+func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
-	ghRead := github.NewClient(cfg.GitHubReadToken, cfg.RequestTimeout)
+	ghRead := github.NewClientWithBaseURL(cfg.GitHubReadToken, cfg.RequestTimeout, cfg.GitHubAPIBaseURL)
 	ghIssue := ghRead
 	if !cfg.DryRun {
-		ghIssue = github.NewClient(cfg.GitHubIssueToken, cfg.RequestTimeout)
+		ghIssue = github.NewClientWithBaseURL(cfg.GitHubIssueToken, cfg.RequestTimeout, cfg.GitHubAPIBaseURL)
 	}
 
-	var st store.Store = store.NewMemory()
-	if cfg.TiDBEnabled {
-		tidb, err := store.NewTiDBStore(cfg)
-		if err != nil {
-			return err
+	st := deps.Store
+	closeStore := func() error { return nil }
+	if st == nil {
+		st = store.NewMemory()
+		if cfg.TiDBEnabled {
+			tidb, err := store.NewTiDBStore(cfg)
+			if err != nil {
+				return err
+			}
+			st = tidb
+			closeStore = tidb.Close
 		}
-		defer tidb.Close()
-		st = tidb
+		defer func() { _ = closeStore() }()
 	}
 
 	if err := st.Migrate(ctx); err != nil {
@@ -66,30 +79,6 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 		DryRun: cfg.DryRun,
 	})
 	analysisAgent := issueagent.New()
-	wsManager, err := workspace.NewManager(workspace.Options{
-		RemoteURL:    cfg.RepoRemoteURL(),
-		MirrorDir:    cfg.WorkspaceMirrorDir,
-		WorktreesDir: cfg.WorkspaceWorktreesDir,
-		MaxWorktrees: cfg.WorkspaceMaxWorktrees,
-	})
-	if err != nil {
-		return err
-	}
-	if err := wsManager.Ensure(ctx); err != nil {
-		return err
-	}
-	fixAgent, err := fixagent.New(fixagent.Options{
-		Owner:      cfg.GitHubOwner,
-		Repo:       cfg.GitHubRepo,
-		DryRun:     cfg.DryRun,
-		GitHub:     ghIssue,
-		Workspace:  wsManager,
-		Store:      st,
-		BaseBranch: cfg.GitHubBaseBranch,
-	})
-	if err != nil {
-		return err
-	}
 
 	for _, run := range runs {
 		jobs, err := ghRead.ListRunJobs(ctx, cfg.GitHubOwner, cfg.GitHubRepo, run.ID, github.ListRunJobsOptions{PerPage: cfg.MaxJobs})
@@ -222,17 +211,72 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	if err := checkApprovalSignals(ctx, cfg, ghIssue, st); err != nil {
 		return err
 	}
-	if err := runFixAgent(ctx, fixAgent, st, ghIssue); err != nil {
-		return err
-	}
-	if err := handlePRFeedbackLoop(ctx, cfg, ghIssue, st, fixAgent); err != nil {
-		return err
-	}
-	if err := checkPRStatus(ctx, cfg, ghIssue, st); err != nil {
-		return err
+
+	if !cfg.DryRun {
+		needsFix, err := needsFixAgent(ctx, st)
+		if err != nil {
+			return err
+		}
+		var fx *fixagent.Agent
+		if needsFix {
+			wsManager, err := workspace.NewManager(workspace.Options{
+				RemoteURL:    cfg.RepoRemoteURL(),
+				MirrorDir:    cfg.WorkspaceMirrorDir,
+				WorktreesDir: cfg.WorkspaceWorktreesDir,
+				MaxWorktrees: cfg.WorkspaceMaxWorktrees,
+			})
+			if err != nil {
+				return err
+			}
+			if err := wsManager.Ensure(ctx); err != nil {
+				return err
+			}
+			fx, err = fixagent.New(fixagent.Options{
+				Owner:      cfg.GitHubOwner,
+				Repo:       cfg.GitHubRepo,
+				DryRun:     cfg.DryRun,
+				GitHub:     ghIssue,
+				Workspace:  wsManager,
+				Store:      st,
+				BaseBranch: cfg.GitHubBaseBranch,
+			})
+			if err != nil {
+				return err
+			}
+		}
+		if fx != nil {
+			if err := runFixAgent(ctx, fx, st, ghIssue); err != nil {
+				return err
+			}
+			if err := handlePRFeedbackLoop(ctx, cfg, ghIssue, st, fx); err != nil {
+				return err
+			}
+		}
+		if err := checkPRStatus(ctx, cfg, ghIssue, st); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func needsFixAgent(ctx context.Context, st store.Store) (bool, error) {
+	states := []store.FingerprintState{
+		store.StateApprovedToFix,
+		store.StatePROpen,
+		store.StatePRNeedsChanges,
+		store.StatePRUpdating,
+	}
+	for _, state := range states {
+		fps, err := st.ListFingerprintsByState(ctx, state, 1)
+		if err != nil {
+			return false, err
+		}
+		if len(fps) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func shouldRunInitialAnalysis(state store.FingerprintState) bool {

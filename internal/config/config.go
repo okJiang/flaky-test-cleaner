@@ -14,6 +14,7 @@ type Config struct {
 	GitHubOwner      string
 	GitHubRepo       string
 	GitHubBaseBranch string
+	GitHubAPIBaseURL string
 
 	GitHubReadToken  string
 	GitHubIssueToken string
@@ -49,6 +50,7 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.GitHubOwner = envOr("FTC_GITHUB_OWNER", "tikv")
 	cfg.GitHubRepo = envOr("FTC_GITHUB_REPO", "pd")
 	cfg.GitHubBaseBranch = envOr("FTC_BASE_BRANCH", "main")
+	cfg.GitHubAPIBaseURL = envOr("FTC_GITHUB_API_BASE_URL", "https://api.github.com")
 	cfg.GitHubReadToken = os.Getenv("FTC_GITHUB_READ_TOKEN")
 	cfg.GitHubIssueToken = os.Getenv("FTC_GITHUB_ISSUE_TOKEN")
 
@@ -77,6 +79,7 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	fs.StringVar(&cfg.GitHubOwner, "owner", cfg.GitHubOwner, "GitHub repository owner")
 	fs.StringVar(&cfg.GitHubRepo, "repo", cfg.GitHubRepo, "GitHub repository name")
 	fs.StringVar(&cfg.GitHubBaseBranch, "base-branch", cfg.GitHubBaseBranch, "Base branch used when opening PRs")
+	fs.StringVar(&cfg.GitHubAPIBaseURL, "github-api-base-url", cfg.GitHubAPIBaseURL, "GitHub API base URL (for tests; default https://api.github.com)")
 	fs.StringVar(&cfg.WorkflowName, "workflow", cfg.WorkflowName, "Workflow name to scan")
 	fs.IntVar(&cfg.MaxRuns, "max-runs", cfg.MaxRuns, "Max failed runs to scan")
 	fs.IntVar(&cfg.MaxJobs, "max-jobs", cfg.MaxJobs, "Max jobs per run to scan")

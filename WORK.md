@@ -118,6 +118,16 @@
 ### Task 6 — Spec 对齐与工程改进（已完成）
 - [x] 6.1 PR 被关闭但未合并时，按 SPEC 状态机转移到 `CLOSED_WONTFIX`（而非 `PR_NEEDS_CHANGES`）。
 
+### Task 7 — CI Pipeline 与集成测试（已完成）
+
+目标：为本仓库建立可复用的 CI pipeline（lint/单测/集成测试/覆盖率），并补齐一套“可在 CI 中稳定运行”的集成测试设计与最小实现骨架。
+
+子任务拆分：
+- [x] 7.1 CI workflow：push/PR 触发，包含 gofmt/go vet/go test（unit+integration）与缓存策略
+- [x] 7.2 集成测试：使用 stub GitHub API server 驱动 Runner 端到端跑通（workflows→runs→jobs→logs→issue/comment），避免真实网络依赖
+- [x] 7.3 可测试性改造：为 GitHub client 支持可配置 base URL；Runner 支持依赖注入与延迟初始化（避免测试触发 git clone）
+- [x] 7.4 文档：在 `TEST.md` 固化测试分层策略、CI matrix、运行说明与故障排查
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
@@ -133,3 +143,5 @@
 - 2026-01-22：完成 Task 5.2（监听 review/CI 信号并自动 follow-up）。
 - 2026-01-22：开始 Task 6（Spec 对齐与工程改进）。
 - 2026-01-22：完成 Task 6.1（PR closed 状态与 SPEC 对齐）。
+- 2026-01-22：开始 Task 7（CI pipeline 与集成测试）。
+- 2026-01-22：完成 Task 7（CI workflow + runner 集成测试 + TEST.md）。

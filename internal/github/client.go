@@ -22,10 +22,18 @@ type Client struct {
 }
 
 func NewClient(token string, timeout time.Duration) *Client {
+	return NewClientWithBaseURL(token, timeout, "https://api.github.com")
+}
+
+func NewClientWithBaseURL(token string, timeout time.Duration, baseURL string) *Client {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = "https://api.github.com"
+	}
 	return &Client{
 		token:   token,
 		timeout: timeout,
-		baseURL: "https://api.github.com",
+		baseURL: baseURL,
 		http: &http.Client{
 			Timeout: timeout,
 		},
@@ -354,16 +362,16 @@ func (e *apiError) Error() string {
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, payload any, out any) error {
-	var body io.Reader
+	var payloadBytes []byte
 	if payload != nil {
 		b, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(b)
+		payloadBytes = b
 	}
 
-	respBody, status, err := c.do(ctx, method, path, query, body, "application/vnd.github+json")
+	respBody, status, err := c.do(ctx, method, path, query, payloadBytes, "application/vnd.github+json")
 	if err != nil {
 		return err
 	}
@@ -380,7 +388,15 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 }
 
 func (c *Client) doBytes(ctx context.Context, method, path string, query url.Values, payload io.Reader) ([]byte, error) {
-	respBody, status, err := c.do(ctx, method, path, query, payload, "application/vnd.github+json")
+	var payloadBytes []byte
+	if payload != nil {
+		b, err := io.ReadAll(payload)
+		if err != nil {
+			return nil, err
+		}
+		payloadBytes = b
+	}
+	respBody, status, err := c.do(ctx, method, path, query, payloadBytes, "application/vnd.github+json")
 	if err != nil {
 		return nil, err
 	}
@@ -393,24 +409,29 @@ func (c *Client) doBytes(ctx context.Context, method, path string, query url.Val
 	return respBody, nil
 }
 
-func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader, accept string) ([]byte, int, error) {
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, payload []byte, accept string) ([]byte, int, error) {
 	urlStr := c.baseURL + path
 	if query != nil && len(query) > 0 {
 		urlStr = urlStr + "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, method, urlStr, body)
-	if err != nil {
-		return nil, 0, err
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	req.Header.Set("Accept", accept)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 
 	for attempt := 0; attempt < 2; attempt++ {
+		var body io.Reader
+		if payload != nil {
+			body = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, urlStr, body)
+		if err != nil {
+			return nil, 0, err
+		}
+		if c.token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		}
+		req.Header.Set("Accept", accept)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return nil, 0, err
