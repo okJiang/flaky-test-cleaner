@@ -31,6 +31,25 @@ go run ./cmd/flaky-test-cleaner --dry-run
 # go run ./cmd/flaky-test-cleaner
 ```
 
+## Dry-run
+
+This project supports a safe "dry-run" mode.
+
+- **Dry-run = true** (`FTC_DRY_RUN=true` or `--dry-run`):
+  - Reads Actions logs from the source repo.
+  - Runs extraction/classification and prints what it *would* do.
+  - **Does not write to GitHub** (no issue/label/comment/PR creation or updates).
+  - If TiDB is enabled, it will still write state to TiDB (occurrences/fingerprints/audit log), so you can validate parsing and dedup without touching GitHub.
+
+- **Dry-run = false** (`FTC_DRY_RUN=false` and run without `--dry-run`):
+  - Everything in dry-run, plus:
+  - **Writes to the GitHub write repo**: creates/updates issues, ensures labels, posts IssueAgent comments, and (when approval signals exist) may proceed to FixAgent/PR flow.
+  - Requires `FTC_GITHUB_ISSUE_TOKEN` with write permissions to the write repo.
+
+Notes:
+- The `--dry-run` flag overrides the `FTC_DRY_RUN` env var.
+- Recommended workflow: start with dry-run, then switch to real run after you confirm the target repos/tokens are correct.
+
 ## Configuration
 
 Environment variables:
