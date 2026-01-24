@@ -11,8 +11,14 @@ import (
 )
 
 type Config struct {
-	GitHubOwner      string
-	GitHubRepo       string
+	// Source repo (read-only): Actions runs/jobs/logs are fetched from here.
+	GitHubOwner string
+	GitHubRepo  string
+
+	// Write repo (write): issues/labels/comments/PRs are created here.
+	GitHubWriteOwner string
+	GitHubWriteRepo  string
+
 	GitHubBaseBranch string
 	GitHubAPIBaseURL string
 
@@ -54,6 +60,8 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	var cfg Config
 	cfg.GitHubOwner = envOr("FTC_GITHUB_OWNER", "tikv")
 	cfg.GitHubRepo = envOr("FTC_GITHUB_REPO", "pd")
+	cfg.GitHubWriteOwner = envOr("FTC_GITHUB_WRITE_OWNER", cfg.GitHubOwner)
+	cfg.GitHubWriteRepo = envOr("FTC_GITHUB_WRITE_REPO", cfg.GitHubRepo)
 	cfg.GitHubBaseBranch = envOr("FTC_BASE_BRANCH", "main")
 	cfg.GitHubAPIBaseURL = envOr("FTC_GITHUB_API_BASE_URL", "https://api.github.com")
 	cfg.GitHubReadToken = os.Getenv("FTC_GITHUB_READ_TOKEN")
@@ -86,8 +94,10 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.CopilotTimeout = envDurationOr("FTC_COPILOT_TIMEOUT", 60*time.Second)
 	cfg.CopilotLogLevel = envOr("FTC_COPILOT_LOG_LEVEL", "error")
 
-	fs.StringVar(&cfg.GitHubOwner, "owner", cfg.GitHubOwner, "GitHub repository owner")
-	fs.StringVar(&cfg.GitHubRepo, "repo", cfg.GitHubRepo, "GitHub repository name")
+	fs.StringVar(&cfg.GitHubOwner, "owner", cfg.GitHubOwner, "GitHub repository owner (source for Actions logs)")
+	fs.StringVar(&cfg.GitHubRepo, "repo", cfg.GitHubRepo, "GitHub repository name (source for Actions logs)")
+	fs.StringVar(&cfg.GitHubWriteOwner, "write-owner", cfg.GitHubWriteOwner, "GitHub repository owner to write issues/PRs to")
+	fs.StringVar(&cfg.GitHubWriteRepo, "write-repo", cfg.GitHubWriteRepo, "GitHub repository name to write issues/PRs to")
 	fs.StringVar(&cfg.GitHubBaseBranch, "base-branch", cfg.GitHubBaseBranch, "Base branch used when opening PRs")
 	fs.StringVar(&cfg.GitHubAPIBaseURL, "github-api-base-url", cfg.GitHubAPIBaseURL, "GitHub API base URL (for tests; default https://api.github.com)")
 	fs.StringVar(&cfg.WorkflowName, "workflow", cfg.WorkflowName, "Workflow name to scan")
@@ -111,6 +121,9 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	if cfg.GitHubOwner == "" || cfg.GitHubRepo == "" {
 		return Config{}, errors.New("owner/repo must be set")
 	}
+	if cfg.GitHubWriteOwner == "" || cfg.GitHubWriteRepo == "" {
+		return Config{}, errors.New("write-owner/write-repo must be set")
+	}
 	if cfg.GitHubReadToken == "" {
 		return Config{}, errors.New("FTC_GITHUB_READ_TOKEN is required")
 	}
@@ -118,12 +131,10 @@ func FromEnvAndFlags(args []string) (Config, error) {
 		return Config{}, errors.New("FTC_GITHUB_ISSUE_TOKEN is required unless --dry-run")
 	}
 	if cfg.TiDBEnabled {
-		if cfg.TiDBHost == "" || cfg.TiDBUser == "" || cfg.TiDBPassword == "" {
-			return Config{}, errors.New("TiDB enabled but TIDB_HOST/TIDB_USER/TIDB_PASSWORD not set")
+		if cfg.TiDBHost == "" || cfg.TiDBUser == "" {
+			return Config{}, errors.New("TiDB enabled but TIDB_HOST/TIDB_USER not set")
 		}
-		if strings.TrimSpace(cfg.TiDBCACertPath) == "" {
-			return Config{}, errors.New("TiDB enabled but TIDB_CA_CERT_PATH not set")
-		}
+		// Local TiDB deployments may not require TLS (no CA) and may allow empty passwords.
 	}
 
 	return cfg, nil
@@ -179,4 +190,8 @@ func envDurationOr(key string, def time.Duration) time.Duration {
 
 func (cfg Config) RepoRemoteURL() string {
 	return fmt.Sprintf("https://github.com/%s/%s.git", cfg.GitHubOwner, cfg.GitHubRepo)
+}
+
+func (cfg Config) WriteRepoRemoteURL() string {
+	return fmt.Sprintf("https://github.com/%s/%s.git", cfg.GitHubWriteOwner, cfg.GitHubWriteRepo)
 }

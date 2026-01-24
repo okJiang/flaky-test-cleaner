@@ -138,6 +138,16 @@
 - [x] 8.3 文档：README 增加相关环境变量/flag 说明
 - [x] 8.4 测试：`go test ./...` 全绿（SDK 集成不引入 CI 依赖）
 
+### Task 9 — Local E2E 验证支持（进行中）
+
+目标：本地跑端到端验证时，可以“读 upstream Actions 日志”但只在 fork 创建/更新 issue/PR；并支持本地 TiDB（无 TLS / 空密码）。
+
+子任务：
+- [x] 9.1 Repo read/write 分离：新增 `FTC_GITHUB_WRITE_OWNER/FTC_GITHUB_WRITE_REPO`（及 flags）
+- [x] 9.2 TiDB 本地连接：允许空密码；`TIDB_CA_CERT_PATH` 可选（无 CA 时不启用 TLS）
+- [x] 9.3 文档：README 补充本地配置示例
+- [ ] 9.4 本地 E2E：用真实 `tikv/pd` 失败 run 做一次 dry-run 验证，并确认 `okjiang/pd` 写入路径可用
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
@@ -156,3 +166,4 @@
 - 2026-01-22：开始 Task 7（CI pipeline 与集成测试）。
 - 2026-01-22：完成 Task 7（CI workflow + runner 集成测试 + TEST.md）。
 - 2026-01-24：开始 Task 8（Copilot CLI SDK 集成）：写入知识库，准备接入 Go SDK。
+- 2026-01-24：开始 Task 9：支持本地 E2E（读 upstream，写 fork；本地 TiDB 无 TLS）。

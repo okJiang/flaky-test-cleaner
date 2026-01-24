@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/okJiang/flaky-test-cleaner/internal/config"
 )
 
 func TestMemoryListFingerprintsByState(t *testing.T) {
@@ -32,5 +35,24 @@ func TestMemoryListFingerprintsByState(t *testing.T) {
 	}
 	if len(res) != 1 || res[0].Fingerprint != "fp-waiting" {
 		t.Fatalf("unexpected results: %+v", res)
+	}
+}
+
+func TestMySQLDSN_TLSOptional(t *testing.T) {
+	cfg := config.Config{
+		TiDBHost:     "127.0.0.1",
+		TiDBPort:     4000,
+		TiDBUser:     "root",
+		TiDBPassword: "",
+	}
+	cfg.TiDBCACertPath = ""
+	noTLS := mysqlDSN(cfg, "flaky_test_cleaner")
+	if strings.Contains(noTLS, "tls=") {
+		t.Fatalf("expected DSN without tls param, got %q", noTLS)
+	}
+	cfg.TiDBCACertPath = "/tmp/ca.pem"
+	withTLS := mysqlDSN(cfg, "flaky_test_cleaner")
+	if !strings.Contains(withTLS, "tls=tidb") {
+		t.Fatalf("expected DSN with tls=tidb, got %q", withTLS)
 	}
 }

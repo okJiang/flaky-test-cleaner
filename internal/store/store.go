@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -470,6 +471,9 @@ func (t *TiDBStore) ensureDatabase(ctx context.Context) error {
 }
 
 func registerTLS(caPath string) error {
+	if strings.TrimSpace(caPath) == "" {
+		return nil
+	}
 	certPool := x509.NewCertPool()
 	pem, err := os.ReadFile(caPath)
 	if err != nil {
@@ -482,14 +486,16 @@ func registerTLS(caPath string) error {
 }
 
 func mysqlDSN(cfg config.Config, database string) string {
-	if database == "" {
-		database = ""
+	params := "parseTime=true"
+	if strings.TrimSpace(cfg.TiDBCACertPath) != "" {
+		params += "&tls=tidb"
 	}
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&tls=tidb",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s",
 		cfg.TiDBUser,
 		cfg.TiDBPassword,
 		cfg.TiDBHost,
 		cfg.TiDBPort,
 		database,
+		params,
 	)
 }

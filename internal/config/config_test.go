@@ -62,15 +62,13 @@ func TestFromEnvAndFlags_NonDryRunRequiresIssueToken(t *testing.T) {
 	}
 }
 
-func TestFromEnvAndFlags_TiDBEnabledRequiresTLSAndCreds(t *testing.T) {
+func TestFromEnvAndFlags_TiDBEnabledRequiresHostAndUser(t *testing.T) {
 	undo := []func(){
 		withEnv(t, "FTC_GITHUB_READ_TOKEN", "read"),
 		withEnv(t, "FTC_DRY_RUN", "true"),
 		withEnv(t, "FTC_TIDB_ENABLED", "true"),
 		withEnv(t, "TIDB_HOST", ""),
 		withEnv(t, "TIDB_USER", ""),
-		withEnv(t, "TIDB_PASSWORD", ""),
-		withEnv(t, "TIDB_CA_CERT_PATH", ""),
 	}
 	defer func() {
 		for i := len(undo) - 1; i >= 0; i-- {

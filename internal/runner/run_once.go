@@ -34,6 +34,15 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
+	// Backward-compatible default: if write repo is not set (e.g. tests constructing Config directly),
+	// fall back to the source repo.
+	if strings.TrimSpace(cfg.GitHubWriteOwner) == "" {
+		cfg.GitHubWriteOwner = cfg.GitHubOwner
+	}
+	if strings.TrimSpace(cfg.GitHubWriteRepo) == "" {
+		cfg.GitHubWriteRepo = cfg.GitHubRepo
+	}
+
 	ghRead := github.NewClientWithBaseURL(cfg.GitHubReadToken, cfg.RequestTimeout, cfg.GitHubAPIBaseURL)
 	ghIssue := ghRead
 	if !cfg.DryRun {
@@ -75,8 +84,8 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 	extractor := extract.NewGoTestExtractor()
 	classifier := classify.NewHeuristic(cfg.ConfidenceThreshold)
 	issueMgr := issue.NewManager(issue.Options{
-		Owner:  cfg.GitHubOwner,
-		Repo:   cfg.GitHubRepo,
+		Owner:  cfg.GitHubWriteOwner,
+		Repo:   cfg.GitHubWriteRepo,
 		DryRun: cfg.DryRun,
 	})
 	analysisAgent := issueagent.New()
@@ -233,7 +242,7 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 		var fx *fixagent.Agent
 		if needsFix {
 			wsManager, err := workspace.NewManager(workspace.Options{
-				RemoteURL:    cfg.RepoRemoteURL(),
+				RemoteURL:    cfg.WriteRepoRemoteURL(),
 				MirrorDir:    cfg.WorkspaceMirrorDir,
 				WorktreesDir: cfg.WorkspaceWorktreesDir,
 				MaxWorktrees: cfg.WorkspaceMaxWorktrees,
@@ -245,8 +254,8 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 				return err
 			}
 			fx, err = fixagent.New(fixagent.Options{
-				Owner:      cfg.GitHubOwner,
-				Repo:       cfg.GitHubRepo,
+				Owner:      cfg.GitHubWriteOwner,
+				Repo:       cfg.GitHubWriteRepo,
 				DryRun:     cfg.DryRun,
 				GitHub:     ghIssue,
 				Workspace:  wsManager,
@@ -331,7 +340,7 @@ func runInitialAnalysis(
 		log.Printf("dry-run issueagent comment issue=%d fingerprint=%s\n%s", issueNumber, fingerprint, body)
 		return nil
 	}
-	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber, body); err != nil {
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, issueNumber, body); err != nil {
 		_ = st.RecordAudit(ctx, "issueagent.initial_analysis", fmt.Sprintf("issue/%d", issueNumber), "error", err.Error())
 		return err
 	}
@@ -373,7 +382,7 @@ func checkApprovalSignals(ctx context.Context, cfg config.Config, gh *github.Cli
 }
 
 func issueHasApproval(ctx context.Context, cfg config.Config, gh *github.Client, issueNumber int) (bool, string, error) {
-	issue, err := gh.GetIssue(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber)
+	issue, err := gh.GetIssue(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, issueNumber)
 	if err != nil {
 		return false, "", err
 	}
@@ -382,7 +391,7 @@ func issueHasApproval(ctx context.Context, cfg config.Config, gh *github.Client,
 			return true, "label flaky-test-cleaner/ai-fix-approved present", nil
 		}
 	}
-	comments, err := gh.ListIssueComments(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber, github.ListIssueCommentsOptions{
+	comments, err := gh.ListIssueComments(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, issueNumber, github.ListIssueCommentsOptions{
 		PerPage: 50,
 	})
 	if err != nil {
@@ -436,7 +445,7 @@ func checkPRStatus(ctx context.Context, cfg config.Config, gh *github.Client, st
 			if fp.PRNumber == 0 {
 				continue
 			}
-			pr, err := gh.GetPullRequest(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.PRNumber)
+			pr, err := gh.GetPullRequest(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, fp.PRNumber)
 			if err != nil {
 				return err
 			}
@@ -465,11 +474,11 @@ func isMerged(pr github.PullRequest) bool {
 
 func finalizeMergedPR(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store, fp store.FingerprintRecord, pr github.PullRequest) error {
 	comment := fmt.Sprintf("PR #%d has been merged. Closing this issue and marking the fingerprint as resolved.", pr.Number)
-	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, comment); err != nil {
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, fp.IssueNumber, comment); err != nil {
 		return err
 	}
 	stateClosed := "closed"
-	if _, err := gh.UpdateIssue(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, github.UpdateIssueInput{State: &stateClosed}); err != nil {
+	if _, err := gh.UpdateIssue(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, fp.IssueNumber, github.UpdateIssueInput{State: &stateClosed}); err != nil {
 		return err
 	}
 	if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StateMerged); err != nil {
@@ -480,7 +489,7 @@ func finalizeMergedPR(ctx context.Context, cfg config.Config, gh *github.Client,
 
 func handleClosedPR(ctx context.Context, cfg config.Config, gh *github.Client, st store.Store, fp store.FingerprintRecord, pr github.PullRequest) error {
 	comment := fmt.Sprintf("PR #%d was closed without merge. Marking this fingerprint as CLOSED_WONTFIX.", pr.Number)
-	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, fp.IssueNumber, comment); err != nil {
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, fp.IssueNumber, comment); err != nil {
 		return err
 	}
 	if err := st.UpdateFingerprintState(ctx, fp.Fingerprint, store.StateClosedWontFix); err != nil {
@@ -546,11 +555,11 @@ func handlePRFeedbackLoop(ctx context.Context, cfg config.Config, gh *github.Cli
 }
 
 func buildPRFeedback(ctx context.Context, cfg config.Config, gh *github.Client, prNumber int) (fixagent.PRFeedback, error) {
-	pr, err := gh.GetPullRequest(ctx, cfg.GitHubOwner, cfg.GitHubRepo, prNumber)
+	pr, err := gh.GetPullRequest(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, prNumber)
 	if err != nil {
 		return fixagent.PRFeedback{}, err
 	}
-	reviews, err := gh.ListPullRequestReviews(ctx, cfg.GitHubOwner, cfg.GitHubRepo, prNumber)
+	reviews, err := gh.ListPullRequestReviews(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, prNumber)
 	if err != nil {
 		return fixagent.PRFeedback{}, err
 	}
@@ -562,7 +571,7 @@ func buildPRFeedback(ctx context.Context, cfg config.Config, gh *github.Client, 
 	}
 	status := github.CombinedStatus{}
 	if strings.TrimSpace(pr.Head.SHA) != "" {
-		st, err := gh.GetCombinedStatus(ctx, cfg.GitHubOwner, cfg.GitHubRepo, pr.Head.SHA)
+		st, err := gh.GetCombinedStatus(ctx, cfg.GitHubWriteOwner, cfg.GitHubWriteRepo, pr.Head.SHA)
 		if err != nil {
 			return fixagent.PRFeedback{}, err
 		}
