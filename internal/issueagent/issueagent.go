@@ -277,6 +277,10 @@ func shortSHA(sha string) string {
 	return sha[:7]
 }
 
+func IsValidIssueAgentBlock(body string) bool {
+	return strings.Contains(body, "<!-- FTC:ISSUE_AGENT_START -->") && strings.Contains(body, "<!-- FTC:ISSUE_AGENT_END -->")
+}
+
 func safe(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return "-"

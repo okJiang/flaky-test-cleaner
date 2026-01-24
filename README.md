@@ -40,6 +40,16 @@ Environment variables:
 - `FTC_WORKSPACE_WORKTREES` (default `worktrees`, directory for git worktrees)
 - `FTC_WORKSPACE_MAX` (default `2`, max concurrent worktrees)
 
+# Optional: Copilot CLI SDK (Go)
+- `FTC_COPILOT_SDK_ENABLED` (default `false`)
+- `FTC_COPILOT_MODEL` (default `gpt-5`)
+- `FTC_COPILOT_TIMEOUT` (default `60s`)
+- `FTC_COPILOT_LOG_LEVEL` (default `error`)
+
 Flags:
 - `--dry-run` (default true)
 - `--interval`
+- `--copilot-sdk`
+- `--copilot-model`
+- `--copilot-timeout`
+- `--copilot-log-level`

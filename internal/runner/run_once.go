@@ -10,6 +10,7 @@ import (
 
 	"github.com/okJiang/flaky-test-cleaner/internal/classify"
 	"github.com/okJiang/flaky-test-cleaner/internal/config"
+	"github.com/okJiang/flaky-test-cleaner/internal/copilotsdk"
 	"github.com/okJiang/flaky-test-cleaner/internal/extract"
 	"github.com/okJiang/flaky-test-cleaner/internal/fingerprint"
 	"github.com/okJiang/flaky-test-cleaner/internal/fixagent"
@@ -79,6 +80,18 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 		DryRun: cfg.DryRun,
 	})
 	analysisAgent := issueagent.New()
+	copilotClient := copilotsdk.New(copilotsdk.Options{
+		Enabled:  cfg.CopilotSDKEnabled,
+		Model:    cfg.CopilotModel,
+		Timeout:  cfg.CopilotTimeout,
+		LogLevel: cfg.CopilotLogLevel,
+	})
+	if err := copilotClient.Start(); err != nil {
+		log.Printf("copilot sdk start failed; falling back to heuristic issueagent: %v", err)
+		copilotClient = nil
+	} else {
+		defer copilotClient.Stop()
+	}
 
 	for _, run := range runs {
 		jobs, err := ghRead.ListRunJobs(ctx, cfg.GitHubOwner, cfg.GitHubRepo, run.ID, github.ListRunJobsOptions{PerPage: cfg.MaxJobs})
@@ -199,7 +212,7 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 						if err := st.UpdateFingerprintState(ctx, fp, store.StateIssueOpen); err != nil {
 							return err
 						}
-						if err := runInitialAnalysis(ctx, cfg, analysisAgent, ghIssue, st, issueNumber, fp, *fpRecUpdated, recent, c); err != nil {
+						if err := runInitialAnalysis(ctx, cfg, analysisAgent, copilotClient, ghIssue, st, issueNumber, fp, *fpRecUpdated, recent, c); err != nil {
 							return err
 						}
 					}
@@ -287,6 +300,7 @@ func runInitialAnalysis(
 	ctx context.Context,
 	cfg config.Config,
 	agent *issueagent.Agent,
+	copilotClient *copilotsdk.Client,
 	gh *github.Client,
 	st store.Store,
 	issueNumber int,
@@ -301,11 +315,23 @@ func runInitialAnalysis(
 		Classification: classification,
 	}
 	comment := agent.BuildInitialComment(input)
+	body := comment.Body
+
+	if cfg.CopilotSDKEnabled && copilotClient != nil {
+		systemMsg := issueagent.BuildCopilotSystemMessage()
+		prompt := issueagent.BuildCopilotPrompt(fpRec, occ, classification)
+		if out, err := copilotClient.GenerateIssueAgentComment(ctx, systemMsg, prompt); err == nil && issueagent.IsValidIssueAgentBlock(out) {
+			body = out
+		} else if err != nil {
+			_ = st.RecordAudit(ctx, "copilot_sdk.issueagent", fmt.Sprintf("issue/%d", issueNumber), "error", err.Error())
+		}
+	}
+
 	if cfg.DryRun {
-		log.Printf("dry-run issueagent comment issue=%d fingerprint=%s\n%s", issueNumber, fingerprint, comment.Body)
+		log.Printf("dry-run issueagent comment issue=%d fingerprint=%s\n%s", issueNumber, fingerprint, body)
 		return nil
 	}
-	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber, comment.Body); err != nil {
+	if err := gh.CreateIssueComment(ctx, cfg.GitHubOwner, cfg.GitHubRepo, issueNumber, body); err != nil {
 		_ = st.RecordAudit(ctx, "issueagent.initial_analysis", fmt.Sprintf("issue/%d", issueNumber), "error", err.Error())
 		return err
 	}

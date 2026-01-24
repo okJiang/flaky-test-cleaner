@@ -128,6 +128,16 @@
 - [x] 7.3 可测试性改造：为 GitHub client 支持可配置 base URL；Runner 支持依赖注入与延迟初始化（避免测试触发 git clone）
 - [x] 7.4 文档：在 `TEST.md` 固化测试分层策略、CI matrix、运行说明与故障排查
 
+### Task 8 — Copilot CLI SDK 集成（进行中）
+
+目标：接入 `github/copilot-sdk`（Go），用于增强 IssueAgent 初次分析评论生成（默认关闭，显式开启后使用；失败自动回退到现有 heuristic 模板）。
+
+子任务拆分：
+- [x] 8.1 知识库：补充 Copilot CLI SDK 基本信息与 Go 使用方法到 `.codex/knowledge/`
+- [x] 8.2 代码集成：新增 `internal/copilotsdk` wrapper，并通过配置开关接入 `runInitialAnalysis`
+- [x] 8.3 文档：README 增加相关环境变量/flag 说明
+- [x] 8.4 测试：`go test ./...` 全绿（SDK 集成不引入 CI 依赖）
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
@@ -145,3 +155,4 @@
 - 2026-01-22：完成 Task 6.1（PR closed 状态与 SPEC 对齐）。
 - 2026-01-22：开始 Task 7（CI pipeline 与集成测试）。
 - 2026-01-22：完成 Task 7（CI workflow + runner 集成测试 + TEST.md）。
+- 2026-01-24：开始 Task 8（Copilot CLI SDK 集成）：写入知识库，准备接入 Go SDK。

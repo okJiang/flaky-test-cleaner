@@ -1,0 +1,55 @@
+package issueagent
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/okJiang/flaky-test-cleaner/internal/classify"
+	"github.com/okJiang/flaky-test-cleaner/internal/extract"
+	"github.com/okJiang/flaky-test-cleaner/internal/store"
+)
+
+func BuildCopilotSystemMessage() string {
+	return strings.TrimSpace(`You are an assistant that writes a GitHub Issue comment for flaky test triage.
+
+Rules:
+- DO NOT call any tools.
+- DO NOT suggest running tools; only describe steps.
+- DO NOT modify files.
+- Output MUST be GitHub-flavored Markdown.
+- Output MUST contain exactly one block delimited by these markers:
+  <!-- FTC:ISSUE_AGENT_START -->
+  ...content...
+  <!-- FTC:ISSUE_AGENT_END -->
+- Keep it concise and actionable.`)
+}
+
+func BuildCopilotPrompt(fp store.FingerprintRecord, occ []extract.Occurrence, c classify.Result) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Fingerprint: %s\n", fp.Fingerprint)
+	fmt.Fprintf(&b, "Repo: %s\n", fp.Repo)
+	fmt.Fprintf(&b, "TestName: %s\n", fp.TestName)
+	fmt.Fprintf(&b, "Framework: %s\n", fp.Framework)
+	fmt.Fprintf(&b, "Class: %s\n", c.Class)
+	fmt.Fprintf(&b, "Confidence: %.2f\n", c.Confidence)
+	if strings.TrimSpace(c.Explanation) != "" {
+		fmt.Fprintf(&b, "ClassifierNotes: %s\n", strings.TrimSpace(c.Explanation))
+	}
+	fmt.Fprintf(&b, "FirstSeenAt: %s\n", fp.FirstSeenAt.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "LastSeenAt: %s\n", fp.LastSeenAt.UTC().Format(time.RFC3339))
+
+	b.WriteString("\nRecentOccurrences:\n")
+	limit := len(occ)
+	if limit > 5 {
+		limit = 5
+	}
+	for i := 0; i < limit; i++ {
+		o := occ[i]
+		fmt.Fprintf(&b, "- run_id=%d job=%q sha=%s test=%q os=%q\n  error=%q\n  excerpt=\n%s\n",
+			o.RunID, o.JobName, shortSHA(o.HeadSHA), o.TestName, o.RunnerOS, o.ErrorSignature, o.Excerpt)
+	}
+
+	b.WriteString("\nWrite the issue comment now following the marker rules.\n")
+	return b.String()
+}
