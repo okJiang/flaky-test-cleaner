@@ -22,6 +22,21 @@ import (
 	"github.com/okJiang/flaky-test-cleaner/internal/workspace"
 )
 
+func firstLine(s string) string {
+	line := strings.TrimSpace(strings.SplitN(s, "\n", 2)[0])
+	if len(line) > 160 {
+		return line[:160] + "..."
+	}
+	return line
+}
+
+func countLines(s string) int {
+	if strings.TrimSpace(s) == "" {
+		return 0
+	}
+	return len(strings.Split(strings.TrimRight(s, "\n"), "\n"))
+}
+
 type RunOnceDeps struct {
 	Store store.Store
 }
@@ -199,7 +214,13 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 				}
 
 				if cfg.DryRun {
-					log.Printf("dry-run issue update fingerprint=%s title=%q labels=%v", fp, change.Title, change.Labels)
+					log.Printf("dry-run issue update fingerprint=%s class=%s confidence=%.2f title=%q labels=%v", fp, c.Class, c.Confidence, change.Title, change.Labels)
+					for i, o := range recent {
+						if i >= 2 {
+							break
+						}
+						log.Printf("dry-run evidence[%d] run=%d url=%s job=%q sha=%s test=%q sig=%q excerpt_lines=%d", i, o.RunID, o.RunURL, o.JobName, o.HeadSHA, o.TestName, firstLine(o.ErrorSignature), countLines(o.Excerpt))
+					}
 				}
 
 				issueNumber, err := issueMgr.Apply(ctx, ghIssue, change)
