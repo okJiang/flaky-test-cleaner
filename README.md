@@ -4,29 +4,31 @@ MVP implementation of the flaky test cleaner for `tikv/pd`.
 
 ## Quick start
 
+Prereqs:
+- Go 1.23+
+- GitHub token(s):
+  - `FTC_GITHUB_READ_TOKEN`: read Actions logs from the source repo (e.g. `tikv/pd`)
+  - `FTC_GITHUB_ISSUE_TOKEN`: write issues/PRs to the write repo (e.g. your fork `okjiang/pd`) — required unless dry-run
+- (Optional) TiDB: e.g. local `mysql --host 127.0.0.1 --port 4000 -u root`
+
 ```bash
-export FTC_GITHUB_READ_TOKEN=...     # required
-export FTC_GITHUB_ISSUE_TOKEN=...    # required unless --dry-run
+# 1) Create your local env file (not committed; ignored by git)
+cp .example.env .env
 
-# Scan upstream logs (read-only)
-export FTC_GITHUB_OWNER=tikv
-export FTC_GITHUB_REPO=pd
+# 2) Edit .env and fill in at least:
+#    - FTC_GITHUB_READ_TOKEN
+#    - FTC_GITHUB_ISSUE_TOKEN (unless dry-run)
+#    - FTC_GITHUB_OWNER/REPO (source) and FTC_GITHUB_WRITE_OWNER/REPO (write)
 
-# Write issues/PRs to your fork (write)
-export FTC_GITHUB_WRITE_OWNER=okjiang
-export FTC_GITHUB_WRITE_REPO=pd
+# 3) Load env vars from .env into the current shell
+set -a; source ./.env; set +a
 
-# Optional TiDB state store
-export FTC_TIDB_ENABLED=true
-export TIDB_HOST=127.0.0.1
-export TIDB_PORT=4000
-export TIDB_USER=root
-export TIDB_PASSWORD=
-export TIDB_DATABASE=flaky_test_cleaner
-# Optional: when set, TLS is enabled and DSN uses tls=tidb
-# export TIDB_CA_CERT_PATH=/path/to/ca.pem
-
+# 4) Run a safe dry-run first (no GitHub writes)
 go run ./cmd/flaky-test-cleaner --dry-run
+
+# 5) Real run (writes to GitHub write repo)
+# Either set FTC_DRY_RUN=false in .env, or run without --dry-run:
+# go run ./cmd/flaky-test-cleaner
 ```
 
 ## Configuration
