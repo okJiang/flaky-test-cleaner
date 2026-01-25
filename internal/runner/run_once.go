@@ -141,7 +141,7 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 				JobID:      job.ID,
 				JobName:    job.Name,
 				RunnerOS:   job.RunnerOS,
-				OccurredAt: time.Now(),
+				OccurredAt: run.CreatedAt,
 				RawLogText: string(raw),
 			})
 			if len(failures) == 0 {
@@ -150,12 +150,12 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 
 			for _, occ := range failures {
 				occ.Excerpt = sanitize.Scrub(occ.Excerpt)
-				occ.ErrorSignature = fingerprint.NormalizeErrorSignature(occ.ErrorSignature)
+				normSig := fingerprint.NormalizeErrorSignature(occ.ErrorSignature)
 				fp := fingerprint.V1(fingerprint.V1Input{
 					Repo:         cfg.GitHubOwner + "/" + cfg.GitHubRepo,
 					Framework:    occ.Framework,
 					TestName:     occ.TestName,
-					ErrorSigNorm: occ.ErrorSignature,
+					ErrorSigNorm: normSig,
 					Platform:     occ.PlatformBucket(),
 				})
 				occ.Fingerprint = fp
