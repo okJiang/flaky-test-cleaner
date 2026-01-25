@@ -152,10 +152,18 @@
 
 目标：修复 `validate.log` 中大量 `unknown-test` 与非失败日志（如 etcd config/lease timeout）被当作 flaky 的问题，并让 `--dry-run` 输出足够信息以对照 SPEC 核心字段。
 
+约束/补充需求（来自 validate.log 复跑反馈）：
+- 只关注 base branch（默认 `main`）的失败：忽略 PR 分支与 `release-*` cherry-pick 的失败。
+- 对“明显是回归/未完成代码导致的 CI 失败”（compile/build/undefined 等）不创建/更新 flaky issue。
+- 当同一测试存在父测试与子测试多条 FAIL（例如 `TestX` 与 `TestX/subcase`），只保留最细粒度（leaf）的 test 作为 flaky 记录。
+
 子任务：
 - [x] 10.1 FailureExtractor：收紧 `timeout` 匹配（仅 test timeout / deadline exceeded 等），避免匹配 `election-timeout/lease-timeout` 等配置文本；并增强 `[FAIL]` 的 test name 提取。
 - [x] 10.2 Runner dry-run 输出：打印 classification/置信度、run_url/job/sha/test_name/error_signature 摘要、excerpt 行数/长度，便于 SPEC 校验。
 - [x] 10.3 测试：补充样例日志 fixture 覆盖误报场景，`go test ./...` 全绿。
+- [x] 10.4 去重：当存在 subtest 时丢弃 parent test occurrence（仅保留 leaf）。
+- [x] 10.5 Run filter：只扫描 base branch 的 workflow runs（push event），忽略 `release-*` / PR runs。
+- [x] 10.6 Regression filter：`likely-regression` 不创建/更新 issue（仅记录 store）。
 
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。

@@ -46,10 +46,12 @@ type Workflow struct {
 }
 
 type WorkflowRun struct {
-	ID        int64     `json:"id"`
-	HTMLURL   string    `json:"html_url"`
-	HeadSHA   string    `json:"head_sha"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	HTMLURL    string    `json:"html_url"`
+	HeadSHA    string    `json:"head_sha"`
+	HeadBranch string    `json:"head_branch"`
+	Event      string    `json:"event"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Job struct {
@@ -63,6 +65,8 @@ type Job struct {
 
 type ListWorkflowRunsOptions struct {
 	Status  string
+	Branch  string
+	Event   string
 	PerPage int
 }
 
@@ -90,6 +94,12 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, owner, repo string, workf
 	if opts.Status != "" {
 		query.Set("status", opts.Status)
 	}
+	if opts.Branch != "" {
+		query.Set("branch", opts.Branch)
+	}
+	if opts.Event != "" {
+		query.Set("event", opts.Event)
+	}
 	if opts.PerPage > 0 {
 		query.Set("per_page", strconv.Itoa(opts.PerPage))
 	}
@@ -116,10 +126,6 @@ func (c *Client) ListRunJobs(ctx context.Context, owner, repo string, runID int6
 		return nil, err
 	}
 	for i := range res.Jobs {
-		if res.Jobs[i].RunnerName != "" {
-			res.Jobs[i].RunnerOS = res.Jobs[i].RunnerName
-			continue
-		}
 		res.Jobs[i].RunnerOS = pickRunnerLabel(res.Jobs[i].Labels)
 	}
 	return res.Jobs, nil

@@ -127,6 +127,32 @@ func (e *GoTestExtractor) Extract(in Input) []Occurrence {
 			})
 		}
 	}
+	return dropParentTests(out)
+}
+
+func dropParentTests(in []Occurrence) []Occurrence {
+	if len(in) == 0 {
+		return in
+	}
+	parents := map[string]struct{}{}
+	for _, o := range in {
+		name := strings.TrimSpace(o.TestName)
+		for strings.Contains(name, "/") {
+			parent := name[:strings.LastIndex(name, "/")]
+			parents[parent] = struct{}{}
+			name = parent
+		}
+	}
+	if len(parents) == 0 {
+		return in
+	}
+	out := make([]Occurrence, 0, len(in))
+	for _, o := range in {
+		if _, ok := parents[strings.TrimSpace(o.TestName)]; ok {
+			continue
+		}
+		out = append(out, o)
+	}
 	return out
 }
 
