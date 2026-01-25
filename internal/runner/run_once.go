@@ -91,7 +91,6 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 	runs, err := ghRead.ListWorkflowRuns(ctx, cfg.GitHubOwner, cfg.GitHubRepo, wf.ID, github.ListWorkflowRunsOptions{
 		Status:  "failure",
 		Branch:  cfg.GitHubBaseBranch,
-		Event:   "push",
 		PerPage: cfg.MaxRuns,
 	})
 	if err != nil {
