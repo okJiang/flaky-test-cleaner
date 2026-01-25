@@ -101,7 +101,8 @@ func (e *GoTestExtractor) Extract(in Input) []Occurrence {
 
 			excerpt := extractExcerpt(lines, i, 40, 40, 120)
 			errorSig := line
-			if p.kind != "ginkgo-fail" && i+1 < len(lines) {
+			// Only panic errors reliably benefit from capturing the next line.
+			if p.kind == "panic" && i+1 < len(lines) {
 				errorSig = line + "\n" + lines[i+1]
 			}
 

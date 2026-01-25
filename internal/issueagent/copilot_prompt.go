@@ -15,7 +15,7 @@ func BuildCopilotSystemMessage() string {
 
 Rules:
 - DO NOT call any tools.
-- DO NOT suggest running tools; only describe steps.
+- You MAY suggest concrete go test commands/flags and investigation steps.
 - DO NOT modify files.
 - Output MUST be GitHub-flavored Markdown.
 - Output MUST contain exactly one block delimited by these markers:

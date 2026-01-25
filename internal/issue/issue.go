@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -135,10 +136,10 @@ func buildBody(in PlanInput, labels []string) string {
 		formatTime(lastSeen),
 	)
 
-	evidence := "## Evidence\n\n| Run | Workflow | Job | Commit | Test | Error Signature |\n| --- | --- | --- | --- | --- | --- |\n"
+	evidence := "## Evidence\n\n| Run | Workflow | Job | OS | Commit | Test | Error Signature |\n| --- | --- | --- | --- | --- | --- | --- |\n"
 	for _, occ := range in.Occurrences {
-		evidence += fmt.Sprintf("| [%d](%s) | %s | %s | %s | %s | %s |\n",
-			occ.RunID, occ.RunURL, occ.Workflow, occ.JobName, shortSHA(occ.HeadSHA), safe(occ.TestName), summarizeSignature(occ.ErrorSignature),
+		evidence += fmt.Sprintf("| [%d](%s) | %s | %s | %s | %s | %s | %s |\n",
+			occ.RunID, occ.RunURL, occ.Workflow, occ.JobName, safe(occ.RunnerOS), shortSHA(occ.HeadSHA), safe(occ.TestName), summarizeSignature(occ.ErrorSignature),
 		)
 	}
 
@@ -179,6 +180,9 @@ func joinBlocks(blocks ...string) string {
 
 func summarizeSignature(sig string) string {
 	line := strings.TrimSpace(strings.SplitN(sig, "\n", 2)[0])
+	// GitHub Actions log lines are often prefixed with RFC3339 timestamps.
+	reTS := regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\s+`)
+	line = strings.TrimSpace(reTS.ReplaceAllString(line, ""))
 	if len(line) > 120 {
 		return line[:120] + "..."
 	}

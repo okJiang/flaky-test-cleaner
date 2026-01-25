@@ -185,3 +185,4 @@
 - 2026-01-24：开始 Task 8（Copilot CLI SDK 集成）：写入知识库，准备接入 Go SDK。
 - 2026-01-25：Copilot CLI SDK 改为默认 best-effort 启用（失败自动回退），移除 enable 开关。
 - 2026-01-24：开始 Task 9：支持本地 E2E（读 upstream，写 fork；本地 TiDB 无 TLS）。
+- 2026-01-25：改进 issue 内容（去掉 timestamp 污染签名/标题；Evidence 增加 OS；Occurrence 时间使用 run.CreatedAt），并新增 `make clean/issue` 用于清理验证创建的 issues。
