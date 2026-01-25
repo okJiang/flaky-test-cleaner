@@ -106,7 +106,7 @@ func RunOnceWithDeps(ctx context.Context, cfg config.Config, deps RunOnceDeps) e
 	})
 	analysisAgent := issueagent.New()
 	copilotClient := copilotsdk.New(copilotsdk.Options{
-		Enabled:  cfg.CopilotSDKEnabled,
+		Enabled:  true,
 		Model:    cfg.CopilotModel,
 		Timeout:  cfg.CopilotTimeout,
 		LogLevel: cfg.CopilotLogLevel,
@@ -348,7 +348,7 @@ func runInitialAnalysis(
 	comment := agent.BuildInitialComment(input)
 	body := comment.Body
 
-	if cfg.CopilotSDKEnabled && copilotClient != nil {
+	if copilotClient != nil {
 		systemMsg := issueagent.BuildCopilotSystemMessage()
 		prompt := issueagent.BuildCopilotPrompt(fpRec, occ, classification)
 		if out, err := copilotClient.GenerateIssueAgentComment(ctx, systemMsg, prompt); err == nil && issueagent.IsValidIssueAgentBlock(out) {

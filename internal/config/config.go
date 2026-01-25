@@ -48,10 +48,9 @@ type Config struct {
 	RequestTimeout time.Duration
 	RunInterval    time.Duration
 
-	CopilotSDKEnabled bool
-	CopilotModel      string
-	CopilotTimeout    time.Duration
-	CopilotLogLevel   string
+	CopilotModel    string
+	CopilotTimeout  time.Duration
+	CopilotLogLevel string
 }
 
 func FromEnvAndFlags(args []string) (Config, error) {
@@ -89,7 +88,6 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.RequestTimeout = envDurationOr("FTC_REQUEST_TIMEOUT", 30*time.Second)
 	cfg.RunInterval = envDurationOr("FTC_RUN_INTERVAL", 0)
 
-	cfg.CopilotSDKEnabled = envBoolOr("FTC_COPILOT_SDK_ENABLED", false)
 	cfg.CopilotModel = envOr("FTC_COPILOT_MODEL", "gpt-5")
 	cfg.CopilotTimeout = envDurationOr("FTC_COPILOT_TIMEOUT", 60*time.Second)
 	cfg.CopilotLogLevel = envOr("FTC_COPILOT_LOG_LEVEL", "error")
@@ -110,7 +108,6 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	fs.StringVar(&cfg.WorkspaceWorktreesDir, "workspace-dir", cfg.WorkspaceWorktreesDir, "Path holding RepoWorkspaceManager worktrees")
 	fs.IntVar(&cfg.WorkspaceMaxWorktrees, "workspace-max", cfg.WorkspaceMaxWorktrees, "Maximum concurrent worktrees to lease")
 	fs.DurationVar(&cfg.RunInterval, "interval", cfg.RunInterval, "Interval to run continuously (0 for run once)")
-	fs.BoolVar(&cfg.CopilotSDKEnabled, "copilot-sdk", cfg.CopilotSDKEnabled, "Enable Copilot CLI SDK for IssueAgent comment generation")
 	fs.StringVar(&cfg.CopilotModel, "copilot-model", cfg.CopilotModel, "Copilot model ID (e.g. gpt-5, gpt-4.1)")
 	fs.DurationVar(&cfg.CopilotTimeout, "copilot-timeout", cfg.CopilotTimeout, "Copilot SDK timeout per request")
 	fs.StringVar(&cfg.CopilotLogLevel, "copilot-log-level", cfg.CopilotLogLevel, "Copilot CLI log level (error/info/debug)")

@@ -130,7 +130,7 @@
 
 ### Task 8 — Copilot CLI SDK 集成（进行中）
 
-目标：接入 `github/copilot-sdk`（Go），用于增强 IssueAgent 初次分析评论生成（默认关闭，显式开启后使用；失败自动回退到现有 heuristic 模板）。
+目标：接入 `github/copilot-sdk`（Go），用于增强 IssueAgent 初次分析评论生成（默认 best-effort 尝试启用；失败自动回退到现有 heuristic 模板）。
 
 子任务拆分：
 - [x] 8.1 知识库：补充 Copilot CLI SDK 基本信息与 Go 使用方法到 `.codex/knowledge/`
@@ -183,4 +183,5 @@
 - 2026-01-22：开始 Task 7（CI pipeline 与集成测试）。
 - 2026-01-22：完成 Task 7（CI workflow + runner 集成测试 + TEST.md）。
 - 2026-01-24：开始 Task 8（Copilot CLI SDK 集成）：写入知识库，准备接入 Go SDK。
+- 2026-01-25：Copilot CLI SDK 改为默认 best-effort 启用（失败自动回退），移除 enable 开关。
 - 2026-01-24：开始 Task 9：支持本地 E2E（读 upstream，写 fork；本地 TiDB 无 TLS）。
