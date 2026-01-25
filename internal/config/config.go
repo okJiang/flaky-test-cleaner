@@ -62,7 +62,7 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.GitHubRepo = envOr("FTC_GITHUB_REPO", "pd")
 	cfg.GitHubWriteOwner = envOr("FTC_GITHUB_WRITE_OWNER", cfg.GitHubOwner)
 	cfg.GitHubWriteRepo = envOr("FTC_GITHUB_WRITE_REPO", cfg.GitHubRepo)
-	cfg.GitHubBaseBranch = envOr("FTC_BASE_BRANCH", "main")
+	cfg.GitHubBaseBranch = envOr("FTC_BASE_BRANCH", "master")
 	cfg.GitHubAPIBaseURL = envOr("FTC_GITHUB_API_BASE_URL", "https://api.github.com")
 	cfg.GitHubReadToken = os.Getenv("FTC_GITHUB_READ_TOKEN")
 	cfg.GitHubIssueToken = os.Getenv("FTC_GITHUB_ISSUE_TOKEN")
