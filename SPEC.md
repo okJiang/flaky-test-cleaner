@@ -258,10 +258,9 @@ Issue 正文生成规则（必须可重复、可幂等）：
 - Issue body 由多个“机器维护区块”组成，每个区块用 HTML 注释包围，便于后续精确替换（避免重复堆叠）。
 - 必须包含以下结构（Markdown）：
   1) `## Summary`：当前分类（仅 flaky-test/likely-regression/unknown 会进入 issue）、置信度、首次发现时间、最近一次出现时间
-  2) `## Evidence`：最近 N 次 occurrence 表格（run_url、workflow、job、commit、test_name、error_signature）
+  2) `## Evidence`：最近 N 次 occurrence 表格（run_url、commit、test_name、error_signature）
   3) `## Log Excerpts`：每次 occurrence 提供 1-2 个 excerpt，使用折叠块 `<details>`，每个 excerpt 限制行数（默认 120 行）
-  4) `## Next Actions`：可执行清单（复现命令、建议的进一步日志/信息）
-  5) `## Automation`：fingerprint、state、上次扫描时间、系统版本
+  4) `## Automation`：fingerprint、state、上次扫描时间、系统版本（建议使用 `<details>` 折叠）
 
 excerpt 选取策略（FailureExtractor → IssueCreatorAgent）：
 - 优先匹配 go test 常见失败信号：`[FAIL]`, `--- FAIL:`, `panic:`, `DATA RACE`, `timeout`, `race`, `connection reset`, `broken pipe`
@@ -427,4 +426,4 @@ Review 跟进（循环能力）：
 - Evidence（最近 N 次 run 链接 + 关键 excerpt）
 - Suspected root causes（分层）
 - Suggested next steps（复现/修复）
-- Automation notes（fingerprint、系统状态、下一次扫描时间）
+- Automation notes（fingerprint、系统状态、下一次扫描时间；建议折叠显示）

@@ -22,10 +22,15 @@ Rules:
   <!-- FTC:ISSUE_AGENT_START -->
   ...content...
   <!-- FTC:ISSUE_AGENT_END -->
+- If RepoContextSnippets are provided, use them to ground hypotheses and cite file+line ranges.
 - Keep it concise and actionable.`)
 }
 
 func BuildCopilotPrompt(fp store.FingerprintRecord, occ []extract.Occurrence, c classify.Result) string {
+	return BuildCopilotPromptWithRepoContext(fp, occ, c, "")
+}
+
+func BuildCopilotPromptWithRepoContext(fp store.FingerprintRecord, occ []extract.Occurrence, c classify.Result, repoContext string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Fingerprint: %s\n", fp.Fingerprint)
 	fmt.Fprintf(&b, "Repo: %s\n", fp.Repo)
@@ -48,6 +53,12 @@ func BuildCopilotPrompt(fp store.FingerprintRecord, occ []extract.Occurrence, c 
 		o := occ[i]
 		fmt.Fprintf(&b, "- run_id=%d job=%q sha=%s test=%q os=%q\n  error=%q\n  excerpt=\n%s\n",
 			o.RunID, o.JobName, shortSHA(o.HeadSHA), o.TestName, o.RunnerOS, o.ErrorSignature, o.Excerpt)
+	}
+
+	if strings.TrimSpace(repoContext) != "" {
+		b.WriteString("\n")
+		b.WriteString(repoContext)
+		b.WriteString("\n")
 	}
 
 	b.WriteString("\nWrite the issue comment now following the marker rules.\n")
