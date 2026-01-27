@@ -340,31 +340,31 @@ func runInitialAnalysis(
 	occ []extract.Occurrence,
 	classification classify.Result,
 ) error {
+	var repoContext string
+	// Avoid network access in tests by only attempting repo-context fetching when using the default GitHub API.
+	if cfg.GitHubAPIBaseURL == "https://api.github.com" {
+		repoWS, err := workspace.NewManager(workspace.Options{
+			RemoteURL:    cfg.RepoRemoteURL(),
+			MirrorDir:    cfg.WorkspaceMirrorDir + ".src",
+			WorktreesDir: cfg.WorkspaceWorktreesDir + "/src",
+			MaxWorktrees: 0,
+		})
+		if err == nil {
+			repoContext = buildIssueAgentRepoContext(ctx, repoWS, occ)
+		}
+	}
+
 	input := issueagent.Input{
-		Fingerprint:    fpRec,
-		Occurrences:    occ,
-		Classification: classification,
+		Fingerprint:         fpRec,
+		Occurrences:         occ,
+		Classification:      classification,
+		RepoContextSnippets: repoContext,
 	}
 	comment := agent.BuildInitialComment(input)
 	body := comment.Body
 
 	if copilotClient != nil {
 		systemMsg := issueagent.BuildCopilotSystemMessage()
-
-		var repoContext string
-		// Avoid network access in tests by only attempting repo-context fetching when using the default GitHub API.
-		if cfg.GitHubAPIBaseURL == "https://api.github.com" {
-			repoWS, err := workspace.NewManager(workspace.Options{
-				RemoteURL:    cfg.RepoRemoteURL(),
-				MirrorDir:    cfg.WorkspaceMirrorDir + ".src",
-				WorktreesDir: cfg.WorkspaceWorktreesDir + "/src",
-				MaxWorktrees: 0,
-			})
-			if err == nil {
-				repoContext = buildIssueAgentRepoContext(ctx, repoWS, occ)
-			}
-		}
-
 		prompt := issueagent.BuildCopilotPromptWithRepoContext(fpRec, occ, classification, repoContext)
 		if out, err := copilotClient.GenerateIssueAgentComment(ctx, systemMsg, prompt); err == nil && issueagent.IsValidIssueAgentBlock(out) {
 			body = out

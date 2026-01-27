@@ -37,6 +37,7 @@ func TestBuildInitialComment(t *testing.T) {
 			Confidence:  0.82,
 			Explanation: "matched panic keyword",
 		},
+		RepoContextSnippets: "RepoContextSnippets (read-only, from failing commit):\nSnippet S1: pkg/foo/bar.go@abcdef1 L10-L20\n\n```go\n  10: func Foo() {}\n```",
 	}
 
 	comment := agent.BuildInitialComment(input)
@@ -44,6 +45,8 @@ func TestBuildInitialComment(t *testing.T) {
 	for _, section := range []string{
 		"<!-- FTC:ISSUE_AGENT_START -->",
 		"## AI Analysis Summary",
+		"## Repo Context (from failing commit)",
+		"Snippet S1:",
 		"## Hypotheses",
 		"## Reproduction Ideas",
 		"## Suggested Fix Directions",

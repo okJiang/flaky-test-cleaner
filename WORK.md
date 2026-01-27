@@ -87,6 +87,11 @@
 	- 在 issue 创建/更新后，若 fingerprint state= `ISSUE_OPEN`，调用 IssueAgent 发布评论并把状态更新为 `TRIAGED`，随后立即进入 `WAITING_FOR_SIGNAL`。
 	- Dry-run 下打印将要发布的评论摘要；真实运行需写入 GitHub 评论并记录 state。
 	- 将 IssueAgent 的动作写入 TiDB `audit_log`（action=`issueagent.initial_analysis`）以备观测。
+- [ ] 3.4 IssueAgent 深度分析（读代码上下文）
+	- [x] 3.4.1 RepoContext: 从 failing `head_sha` 的 mirror 中基于 stack `path:line` / test 定义，提取短 snippet（带 file+sha+line range + Snippet ID: S1/S2/...）。
+	- [x] 3.4.2 兼容：无 Copilot SDK 时，deterministic 评论也包含 RepoContext。
+	- [x] 3.4.3 Prompt 收紧：要求引用 snippet ID、给复现命令、给 patch plan（可选 diff 草案）、给 maintainer approval checklist。
+	- [ ] 3.4.4 RepoContext 扩展：增加函数名/套件方法等检索，snippet 上限提升到 ≤6，并做去重/排序。
 
 ### Task 4 — FixAgent 与 RepoWorkspace（待规划）
 

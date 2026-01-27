@@ -17,9 +17,10 @@ type Agent struct{}
 func New() *Agent { return &Agent{} }
 
 type Input struct {
-	Fingerprint    store.FingerprintRecord
-	Occurrences    []extract.Occurrence
-	Classification classify.Result
+	Fingerprint         store.FingerprintRecord
+	Occurrences         []extract.Occurrence
+	Classification      classify.Result
+	RepoContextSnippets string
 }
 
 type Comment struct {
@@ -52,6 +53,12 @@ func renderInitialComment(in Input) string {
 	fmt.Fprintf(&b, "- Test focus: %s\n", safe(testName))
 	fmt.Fprintf(&b, "- Runs analyzed: %s\n", runs)
 	fmt.Fprintf(&b, "- Evidence window: %s → %s\n", formatTime(firstSeen), formatTime(lastSeen))
+
+	if strings.TrimSpace(in.RepoContextSnippets) != "" {
+		b.WriteString("\n## Repo Context (from failing commit)\n")
+		b.WriteString(strings.TrimSpace(in.RepoContextSnippets))
+		b.WriteString("\n")
+	}
 
 	b.WriteString("\n## Hypotheses\n")
 	for i, h := range hypotheses {

@@ -51,7 +51,8 @@ func buildIssueAgentRepoContext(ctx context.Context, ws *workspace.Manager, occ 
 			continue
 		}
 		start, end, snippet := sliceWithLineNumbers(string(b), p.line, 40)
-		sections = append(sections, fmt.Sprintf("- %s@%s L%d-L%d\n\n```go\n%s\n```", path, shortSHA(sha), start, end, snippet))
+		id := fmt.Sprintf("S%d", len(sections)+1)
+		sections = append(sections, fmt.Sprintf("- %s: %s@%s L%d-L%d\n\n```go\n%s\n```", id, path, shortSHA(sha), start, end, snippet))
 		if len(sections) >= 3 {
 			break
 		}
@@ -74,7 +75,8 @@ func buildIssueAgentRepoContext(ctx context.Context, ws *workspace.Manager, occ 
 						continue
 					}
 					start, end, snippet := sliceWithLineNumbers(string(b), line, 40)
-					sections = append(sections, fmt.Sprintf("- %s@%s L%d-L%d\n\n```go\n%s\n```", path, shortSHA(sha), start, end, snippet))
+					id := fmt.Sprintf("S%d", len(sections)+1)
+					sections = append(sections, fmt.Sprintf("- %s: %s@%s L%d-L%d\n\n```go\n%s\n```", id, path, shortSHA(sha), start, end, snippet))
 					break
 				}
 			}

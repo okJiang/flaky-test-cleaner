@@ -15,14 +15,16 @@ func BuildCopilotSystemMessage() string {
 
 Rules:
 - DO NOT call any tools.
-- You MAY suggest concrete go test commands/flags and investigation steps.
 - DO NOT modify files.
 - Output MUST be GitHub-flavored Markdown.
 - Output MUST contain exactly one block delimited by these markers:
   <!-- FTC:ISSUE_AGENT_START -->
   ...content...
   <!-- FTC:ISSUE_AGENT_END -->
-- If RepoContextSnippets are provided, use them to ground hypotheses and cite file+line ranges.
+- If RepoContextSnippets are provided, you MUST ground your reasoning in them and cite snippet IDs (e.g. "S1") and the file+line ranges.
+- Provide concrete reproduction commands.
+- Provide a concrete patch plan (what to change, where, and why). If feasible, include a small diff sketch.
+- End with a short "Maintainer approval checklist".
 - Keep it concise and actionable.`)
 }
 
