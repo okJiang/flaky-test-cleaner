@@ -50,6 +50,46 @@ Notes:
 - The `--dry-run` flag overrides the `FTC_DRY_RUN` env var.
 - Recommended workflow: start with dry-run, then switch to real run after you confirm the target repos/tokens are correct.
 
+## Overall workflow (when to do what)
+
+This tool is designed to be run periodically (cron / GitHub Actions schedule / `--interval`). It scans failed GitHub Actions jobs on the **source repo** and manages issues/PRs on the **write repo**.
+
+1) Configure once (you)
+- Set `FTC_GITHUB_OWNER/REPO` (source; read Actions logs) and `FTC_GITHUB_WRITE_OWNER/REPO` (write; where issues/PRs are created).
+- Make sure `FTC_BASE_BRANCH` matches the branch you want to scan/open PRs against (default: `master`; many repos use `main`).
+- Run `--dry-run` first to verify the target repos/tokens.
+
+2) Discovery & classification (tool)
+- Lists failed workflow runs on the base branch, downloads failed job logs, extracts Go test failures, computes a fingerprint, and classifies each occurrence.
+- `infra-flake` / `likely-regression` are recorded in the state store (if enabled) but **no issue is created/updated**.
+
+3) Issue creation/update (tool; requires write token)
+- For `flaky-test` / `unknown`, creates or updates a GitHub issue (labels + evidence table + log excerpts) in the write repo.
+- On the first time a fingerprint appears, posts an initial IssueAgent analysis comment and transitions the fingerprint to “waiting for signal”.
+
+4) Human gate (you)
+- If you want the bot to proceed to the Fix/PR flow, approve it on the issue by either:
+  - Adding label: `flaky-test-cleaner/ai-fix-approved`, or
+  - Commenting: `/ai-fix`
+
+5) FixAgent & PR flow (tool; requires GitHub write + git push capability)
+- On the next non-dry-run execution after approval, FixAgent:
+  - Leases a git worktree in `FTC_WORKSPACE_WORKTREES`,
+  - Writes/updates `FIX_AGENT_TODO.md`, runs `go test ./...` (best-effort),
+  - Creates branch `ai/fix/<fingerprint>`, pushes it to the write repo, and opens a PR targeting `FTC_BASE_BRANCH`.
+- Ensure your environment can `git push` to the write repo (e.g. `gh auth login` or a configured git credential helper), in addition to `FTC_GITHUB_ISSUE_TOKEN` for the GitHub API.
+
+6) Review / CI feedback loop (you + tool)
+- Review the PR normally; if reviewers request changes or CI fails, re-run the tool: it will append a checklist to `FIX_AGENT_TODO.md`, push follow-up commits, and comment on the PR.
+
+7) Resolution (tool)
+- If the PR is merged, the tool comments and closes the issue and marks the fingerprint as resolved.
+- If the PR is closed without merging, the tool marks the fingerprint as `CLOSED_WONTFIX`.
+
+Scheduling tips:
+- Run once (default): `go run ./cmd/flaky-test-cleaner`
+- Run continuously: `go run ./cmd/flaky-test-cleaner --interval 72h`
+
 ## Configuration
 
 Environment variables:
