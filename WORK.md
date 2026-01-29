@@ -218,3 +218,13 @@
 - 2026-01-24：开始 Task 9：支持本地 E2E（读 upstream，写 fork；本地 TiDB 无 TLS）。
 - 2026-01-25：改进 issue 内容（去掉 timestamp 污染签名/标题；Evidence 增加 OS；Occurrence 时间使用 run.CreatedAt），并新增 `make clean/issue` 用于清理验证创建的 issues。
 - 2026-01-29：完成 Task 11：引入常驻运行模式（Discovery/Interaction 双循环 + signal 优雅退出），并增强 issue/PR comment 轮询信号。
+- 2026-01-29：完成 Task 12：Makefile 增加常用测试/运行/清理命令（含 `make check`）。
+
+### Task 12 — Makefile 常用命令（已完成）
+
+目标：把常用的测试/运行/开发命令固化到 `Makefile`，便于快速验证与调试。
+
+子任务：
+- [x] 12.1 Make targets：`make test/test/race/test/runner/fmt/fmt-check/vet/tidy/build/run/run/once/run/dry` 等
+- [x] 12.2 保留并完善 `clean/issue`，并补充本地清理（workspace/cache）命令
+- [x] 12.3 文档：在知识库记录 Makefile 目标与关键变量

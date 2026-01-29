@@ -1,4 +1,90 @@
-.PHONY: clean/issue
+SHELL := /bin/bash
+
+GO ?= go
+GOCACHE ?= /tmp/go-build-cache
+FTC_MAIN ?= ./cmd/flaky-test-cleaner
+FTC_BIN ?= bin/flaky-test-cleaner
+FTC_ENV_FILE ?= .env
+
+.PHONY: help check fmt fmt-check vet tidy test test/runner test/race build \
+	run run/once run/dry \
+	clean clean/workspace clean/go-cache clean/issue
+
+# Prints common targets.
+help:
+	@echo "Targets:"
+	@echo "  make check           # fmt-check + vet + test"
+	@echo "  make test            # go test ./... -count=1"
+	@echo "  make test/race       # go test -race ./... -count=1"
+	@echo "  make test/runner     # runner package tests"
+	@echo "  make fmt             # gofmt -w ."
+	@echo "  make fmt-check       # fail if gofmt would change files"
+	@echo "  make vet             # go vet ./..."
+	@echo "  make tidy            # go mod tidy + download"
+	@echo "  make build           # build binary to $(FTC_BIN)"
+	@echo "  make run/dry         # run once in dry-run mode (loads $(FTC_ENV_FILE) if present)"
+	@echo "  make run/once        # run once (loads $(FTC_ENV_FILE) if present)"
+	@echo "  make run             # run as daemon (loads $(FTC_ENV_FILE) if present)"
+	@echo "  make clean/workspace # delete local cache/worktrees dirs"
+	@echo "  make clean/issue     # close validation issues in GitHub write repo"
+
+check: fmt-check vet test
+
+fmt:
+	gofmt -w .
+
+fmt-check:
+	@test -z "$$(gofmt -l .)"
+
+vet:
+	$(GO) vet ./...
+
+tidy:
+	$(GO) mod tidy
+	$(GO) mod download
+
+test:
+	GOCACHE="$(GOCACHE)" $(GO) test ./... -count=1
+
+test/race:
+	GOCACHE="$(GOCACHE)" $(GO) test -race ./... -count=1
+
+test/runner:
+	GOCACHE="$(GOCACHE)" $(GO) test ./internal/runner -count=1 -run Test -v
+
+build:
+	@set -euo pipefail; \
+	mkdir -p "$$(dirname "$(FTC_BIN)")"; \
+	GOCACHE="$(GOCACHE)" $(GO) build -o "$(FTC_BIN)" "$(FTC_MAIN)"
+
+run/dry:
+	@set -euo pipefail; \
+	if [ -f "$(FTC_ENV_FILE)" ]; then set -a; source "$(FTC_ENV_FILE)"; set +a; fi; \
+	GOCACHE="$(GOCACHE)" $(GO) run "$(FTC_MAIN)" --once --dry-run
+
+run/once:
+	@set -euo pipefail; \
+	if [ -f "$(FTC_ENV_FILE)" ]; then set -a; source "$(FTC_ENV_FILE)"; set +a; fi; \
+	GOCACHE="$(GOCACHE)" $(GO) run "$(FTC_MAIN)" --once
+
+run:
+	@set -euo pipefail; \
+	if [ -f "$(FTC_ENV_FILE)" ]; then set -a; source "$(FTC_ENV_FILE)"; set +a; fi; \
+	GOCACHE="$(GOCACHE)" $(GO) run "$(FTC_MAIN)"
+
+clean:
+	rm -rf bin
+
+clean/workspace:
+	rm -rf worktrees cache
+
+clean/go-cache:
+	@set -euo pipefail; \
+	if [ -z "$(GOCACHE)" ] || [ "$(GOCACHE)" = "/" ] || [ "$(GOCACHE)" = "/tmp" ]; then \
+		echo "refusing to remove unsafe GOCACHE=$(GOCACHE)"; \
+		exit 1; \
+	fi; \
+	rm -rf "$(GOCACHE)"
 
 # Close validation issues created by flaky-test-cleaner in the fork repo.
 # Usage:
