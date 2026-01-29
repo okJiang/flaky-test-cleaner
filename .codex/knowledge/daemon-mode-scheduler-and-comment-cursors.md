@@ -7,22 +7,14 @@
   - `RunOnce` (env `FTC_RUN_ONCE`, flag `--once`)
   - `DiscoveryInterval` (env `FTC_DISCOVERY_INTERVAL`, flag `--discovery-interval`)
   - `InteractionInterval` (env `FTC_INTERACTION_INTERVAL`, flag `--interaction-interval`)
-  - Legacy: `RunInterval` (env `FTC_RUN_INTERVAL`, flag `--interval`, deprecated; sets both loops)
 - Defaults (when using `config.FromEnvAndFlags`):
   - `FTC_RUN_ONCE=false`
   - `FTC_DISCOVERY_INTERVAL=72h`
   - `FTC_INTERACTION_INTERVAL=10m`
-- Precedence:
-  - `--discovery-interval` / `FTC_DISCOVERY_INTERVAL` overrides legacy `--interval` / `FTC_RUN_INTERVAL`
-  - `--interaction-interval` / `FTC_INTERACTION_INTERVAL` overrides legacy `--interval` / `FTC_RUN_INTERVAL`
-  - Legacy interval fills any loop interval that wasn’t explicitly set, **only when it is a positive duration** (`>0`).
 
 ## Runner loops (daemon behavior)
 
 - Entrypoint: `internal/runner/run.go` `Run(ctx, cfg)`
-  - Backward compat:
-    - If `DiscoveryInterval==0 && InteractionInterval==0 && RunInterval>0`, sets both loop intervals to `RunInterval`.
-    - If all intervals are zero and `RunOnce=false`, falls back to `RunOnce(ctx, cfg)` (old “run once” behavior).
   - Initializes shared runtime via `newRuntime(ctx, cfg, RunOnceDeps{})`.
   - Runs:
     - `runtime.DiscoveryOnce(ctx)` on `DiscoveryInterval` ticker (and once immediately on startup).

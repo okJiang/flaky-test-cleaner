@@ -52,7 +52,7 @@ Notes:
 
 ## Overall workflow (when to do what)
 
-This tool is designed to be run periodically (cron / GitHub Actions schedule / `--interval`). It scans failed GitHub Actions jobs on the **source repo** and manages issues/PRs on the **write repo**.
+This tool is designed to run continuously (daemon mode by default), or periodically via cron / GitHub Actions schedule using `--once`. It scans failed GitHub Actions jobs on the **source repo** and manages issues/PRs on the **write repo**.
 
 1) Configure once (you)
 - Set `FTC_GITHUB_OWNER/REPO` (source; read Actions logs) and `FTC_GITHUB_WRITE_OWNER/REPO` (write; where issues/PRs are created).
@@ -92,7 +92,6 @@ Scheduling tips:
 - Run once: `go run ./cmd/flaky-test-cleaner --once`
 - Run continuously (default): `go run ./cmd/flaky-test-cleaner`
 - Customize loops: `go run ./cmd/flaky-test-cleaner --discovery-interval 72h --interaction-interval 10m`
-- Legacy: `--interval` sets both loops (deprecated)
 
 ## Configuration
 
@@ -112,7 +111,6 @@ Environment variables:
 - `FTC_RUN_ONCE` (default `false`)
 - `FTC_DISCOVERY_INTERVAL` (default `72h`)
 - `FTC_INTERACTION_INTERVAL` (default `10m`)
-- `FTC_RUN_INTERVAL` (deprecated; sets both loops)
 - `FTC_TIDB_ENABLED` (default `false`)
 - `FTC_BASE_BRANCH` (default `master`, branch used for opening PRs)
 - `FTC_WORKSPACE_MIRROR` (default `cache/tikv-pd.git`, bare mirror path)
@@ -131,7 +129,6 @@ Flags:
 - `--once`
 - `--discovery-interval`
 - `--interaction-interval`
-- `--interval` (deprecated)
 - `--copilot-model`
 - `--copilot-timeout`
 - `--copilot-log-level`

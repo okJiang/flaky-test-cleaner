@@ -70,7 +70,7 @@ run/once:
 run:
 	@set -euo pipefail; \
 	if [ -f "$(FTC_ENV_FILE)" ]; then set -a; source "$(FTC_ENV_FILE)"; set +a; fi; \
-	GOCACHE="$(GOCACHE)" $(GO) run "$(FTC_MAIN)"
+	GOCACHE="$(GOCACHE)" $(GO) run "$(FTC_MAIN)" --dry-run=false
 
 clean:
 	rm -rf bin

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -9,15 +10,8 @@ import (
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
-	// Backward-compat: older callers may only set RunInterval.
-	if cfg.DiscoveryInterval <= 0 && cfg.InteractionInterval <= 0 && cfg.RunInterval > 0 {
-		cfg.DiscoveryInterval = cfg.RunInterval
-		cfg.InteractionInterval = cfg.RunInterval
-	}
-
-	// Backward-compat: older callers with all-zero intervals used to mean "run once".
-	if !cfg.RunOnce && cfg.DiscoveryInterval <= 0 && cfg.InteractionInterval <= 0 && cfg.RunInterval <= 0 {
-		return RunOnce(ctx, cfg)
+	if !cfg.RunOnce && cfg.DiscoveryInterval <= 0 && cfg.InteractionInterval <= 0 {
+		return fmt.Errorf("daemon mode requires at least one of discovery/interaction to be enabled")
 	}
 
 	rt, cleanup, err := newRuntime(ctx, cfg, RunOnceDeps{})

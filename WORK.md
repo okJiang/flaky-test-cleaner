@@ -58,8 +58,8 @@
 	- 新 occurrence 到来时更新 Evidence 表格与 “last seen”
 	- infra-flake 默认不创建/更新 issue（仅记录指标/审计）
 - [x] Runner（Scheduler 的 MVP）：
-	- `--once` 默认跑一次（建议由外部 cron/CI 调度每 3 天）
-	- 未来可扩展 `--interval=72h` 常驻
+	- `--once` 跑一次（建议由外部 cron/CI 调度）
+	- 常驻模式由 `FTC_DISCOVERY_INTERVAL` / `FTC_INTERACTION_INTERVAL` 控制周期
 - [x] 单测与样例：
 	- extractor / normalize / fingerprint 的稳定性测试
 	- issue body block 更新的幂等测试
@@ -181,7 +181,6 @@
 	- 增加 `FTC_RUN_ONCE` / `--once`：运行一次完整循环后退出（便于本地验证/调试）
 	- 增加 `FTC_DISCOVERY_INTERVAL` / `--discovery-interval`：Discovery loop 周期（默认 72h；可设为 0 禁用 discovery）
 	- 增加 `FTC_INTERACTION_INTERVAL` / `--interaction-interval`：Interaction loop 周期（默认 10m；可设为 0 禁用 interaction）
-	- 保持兼容：`FTC_RUN_INTERVAL` / `--interval` 继续支持（等价于同时设置 discovery+interaction）
 - [x] 11.2 Runner 重构
 	- 拆分 `RunOnce` 为 `DiscoveryOnce` 与 `InteractionOnce` 两个可复用的执行单元
 	- Daemon 模式复用同一个 Store（即便未启用 TiDB，也在进程内保持状态，避免每个 tick 重置）
@@ -220,6 +219,7 @@
 - 2026-01-29：完成 Task 11：引入常驻运行模式（Discovery/Interaction 双循环 + signal 优雅退出），并增强 issue/PR comment 轮询信号。
 - 2026-01-29：完成 Task 12：Makefile 增加常用测试/运行/清理命令（含 `make check`）。
 - 2026-01-29：完成 Task 13：修复 legacy `FTC_RUN_INTERVAL=0` 会禁用循环导致 daemon 启动失败的问题，并补充 config 单测。
+- 2026-01-29：完成 Task 14：移除 deprecated/兼容 interval（`FTC_RUN_INTERVAL`/`--interval`/`RunInterval`）与相关逻辑/文档/测试。
 
 ### Task 12 — Makefile 常用命令（已完成）
 
@@ -237,3 +237,15 @@
 子任务：
 - [x] 13.1 `internal/config`：legacy `FTC_RUN_INTERVAL` 仅在 `>0` 时覆盖 discovery/interaction；为 0 时不覆盖新默认值
 - [x] 13.2 测试：补充 config 单测覆盖（legacy=0 与 legacy>0）
+
+### Task 14 — 移除 deprecated/兼容代码（已完成）
+
+目标：由于项目尚未上线运行，移除历史兼容路径，简化配置与 runner 行为：
+- 删除 `FTC_RUN_INTERVAL` / `--interval` / `Config.RunInterval`（deprecated）
+- 删除相关 fallback/兼容逻辑与测试用例
+
+子任务：
+- [x] 14.1 `internal/config`：移除 legacy interval 字段/flag/env 处理
+- [x] 14.2 `internal/runner`：移除 legacy interval fallback 逻辑
+- [x] 14.3 文档与知识库：README / `.example.env` / `.codex/knowledge` 同步
+- [x] 14.4 测试：删改对应单测，`make check` 全绿

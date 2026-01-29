@@ -83,6 +83,8 @@ func TestRunOnce_InfraFlake_DoesNotCreateIssue(t *testing.T) {
 	cfg := config.Config{
 		GitHubOwner:           owner,
 		GitHubRepo:            repo,
+		GitHubWriteOwner:      owner,
+		GitHubWriteRepo:       repo,
 		GitHubAPIBaseURL:      "http://stub",
 		GitHubReadToken:       "read",
 		GitHubIssueToken:      "issue",

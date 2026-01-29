@@ -36,15 +36,6 @@ type runtime struct {
 }
 
 func newRuntime(ctx context.Context, cfg config.Config, deps RunOnceDeps) (*runtime, func() error, error) {
-	// Backward-compatible defaults: if write repo is not set (e.g. tests constructing Config directly),
-	// fall back to the source repo.
-	if strings.TrimSpace(cfg.GitHubWriteOwner) == "" {
-		cfg.GitHubWriteOwner = cfg.GitHubOwner
-	}
-	if strings.TrimSpace(cfg.GitHubWriteRepo) == "" {
-		cfg.GitHubWriteRepo = cfg.GitHubRepo
-	}
-
 	ghRead := deps.GitHubRead
 	ghIssue := deps.GitHubIssue
 	if ghRead == nil {

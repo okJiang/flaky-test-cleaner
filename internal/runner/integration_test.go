@@ -126,6 +126,8 @@ func TestRunOnce_EndToEnd_WithStubGitHubAPI(t *testing.T) {
 	cfg := config.Config{
 		GitHubOwner:           owner,
 		GitHubRepo:            repo,
+		GitHubWriteOwner:      owner,
+		GitHubWriteRepo:       repo,
 		GitHubBaseBranch:      "main",
 		GitHubAPIBaseURL:      "http://stub",
 		GitHubReadToken:       "read-token",
@@ -140,7 +142,6 @@ func TestRunOnce_EndToEnd_WithStubGitHubAPI(t *testing.T) {
 		WorkspaceWorktreesDir: t.TempDir(),
 		WorkspaceMaxWorktrees: 1,
 		RequestTimeout:        2 * time.Second,
-		RunInterval:           0,
 	}
 
 	gh := github.NewClientWithTransport("token", 2*time.Second, "http://stub", newHandlerTransport(mux))

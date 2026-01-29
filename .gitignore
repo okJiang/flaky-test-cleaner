@@ -1,2 +1,7 @@
 # Local secrets
 .env
+
+# Local workspaces/artifacts
+bin/
+cache/
+worktrees/

@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"testing"
-	"time"
 )
 
 func withEnv(t *testing.T, key, val string) func() {
@@ -80,59 +79,5 @@ func TestFromEnvAndFlags_TiDBEnabledRequiresHostAndUser(t *testing.T) {
 	_, err := FromEnvAndFlags([]string{})
 	if err == nil {
 		t.Fatalf("expected error")
-	}
-}
-
-func TestFromEnvAndFlags_LegacyIntervalZeroDoesNotDisableLoopDefaults(t *testing.T) {
-	undo := []func(){
-		withEnv(t, "FTC_GITHUB_READ_TOKEN", "read"),
-		withEnv(t, "FTC_DRY_RUN", "true"),
-		withEnv(t, "FTC_RUN_ONCE", ""),
-		withEnv(t, "FTC_RUN_INTERVAL", "0s"),
-		withEnv(t, "FTC_DISCOVERY_INTERVAL", ""),
-		withEnv(t, "FTC_INTERACTION_INTERVAL", ""),
-	}
-	defer func() {
-		for i := len(undo) - 1; i >= 0; i-- {
-			undo[i]()
-		}
-	}()
-
-	cfg, err := FromEnvAndFlags([]string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.DiscoveryInterval <= 0 {
-		t.Fatalf("expected discovery interval >0, got %s", cfg.DiscoveryInterval)
-	}
-	if cfg.InteractionInterval <= 0 {
-		t.Fatalf("expected interaction interval >0, got %s", cfg.InteractionInterval)
-	}
-}
-
-func TestFromEnvAndFlags_LegacyIntervalPositiveSetsBothLoops(t *testing.T) {
-	undo := []func(){
-		withEnv(t, "FTC_GITHUB_READ_TOKEN", "read"),
-		withEnv(t, "FTC_DRY_RUN", "true"),
-		withEnv(t, "FTC_RUN_ONCE", ""),
-		withEnv(t, "FTC_RUN_INTERVAL", "1h"),
-		withEnv(t, "FTC_DISCOVERY_INTERVAL", ""),
-		withEnv(t, "FTC_INTERACTION_INTERVAL", ""),
-	}
-	defer func() {
-		for i := len(undo) - 1; i >= 0; i-- {
-			undo[i]()
-		}
-	}()
-
-	cfg, err := FromEnvAndFlags([]string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.DiscoveryInterval != time.Hour {
-		t.Fatalf("expected discovery interval 1h, got %s", cfg.DiscoveryInterval)
-	}
-	if cfg.InteractionInterval != time.Hour {
-		t.Fatalf("expected interaction interval 1h, got %s", cfg.InteractionInterval)
 	}
 }

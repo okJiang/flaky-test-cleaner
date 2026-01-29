@@ -57,6 +57,8 @@ func TestRunOnce_ApprovalSignal_LabelMovesToApprovedToFix(t *testing.T) {
 	cfg := config.Config{
 		GitHubOwner:         owner,
 		GitHubRepo:          repo,
+		GitHubWriteOwner:    owner,
+		GitHubWriteRepo:     repo,
 		GitHubAPIBaseURL:    "http://stub",
 		GitHubReadToken:     "read",
 		GitHubIssueToken:    "",
@@ -134,6 +136,8 @@ func TestRunOnce_ApprovalSignal_CommentMovesToApprovedToFix(t *testing.T) {
 	cfg := config.Config{
 		GitHubOwner:         owner,
 		GitHubRepo:          repo,
+		GitHubWriteOwner:    owner,
+		GitHubWriteRepo:     repo,
 		GitHubAPIBaseURL:    "http://stub",
 		GitHubReadToken:     "read",
 		WorkflowName:        "PD Test",
