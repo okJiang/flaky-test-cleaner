@@ -37,7 +37,7 @@ fmt-check:
 	@test -z "$$(gofmt -l .)"
 
 vet:
-	$(GO) vet ./...
+	GOCACHE="$(GOCACHE)" $(GO) vet ./...
 
 tidy:
 	$(GO) mod tidy

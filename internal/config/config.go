@@ -175,7 +175,9 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	if !interactionSet {
 		_, interactionSet = os.LookupEnv("FTC_INTERACTION_INTERVAL")
 	}
-	if legacySet {
+	// Legacy behavior: --interval / FTC_RUN_INTERVAL sets both loops, but only when it is a
+	// positive duration. A zero/negative legacy interval should not disable the new defaults.
+	if legacySet && cfg.RunInterval > 0 {
 		if !discoverySet {
 			cfg.DiscoveryInterval = cfg.RunInterval
 		}

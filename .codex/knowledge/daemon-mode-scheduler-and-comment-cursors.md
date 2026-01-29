@@ -15,7 +15,7 @@
 - Precedence:
   - `--discovery-interval` / `FTC_DISCOVERY_INTERVAL` overrides legacy `--interval` / `FTC_RUN_INTERVAL`
   - `--interaction-interval` / `FTC_INTERACTION_INTERVAL` overrides legacy `--interval` / `FTC_RUN_INTERVAL`
-  - Legacy interval fills any loop interval that wasn’t explicitly set.
+  - Legacy interval fills any loop interval that wasn’t explicitly set, **only when it is a positive duration** (`>0`).
 
 ## Runner loops (daemon behavior)
 
