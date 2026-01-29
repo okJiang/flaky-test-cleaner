@@ -23,6 +23,7 @@ func TestPlanIssueUpdateCreatesBody(t *testing.T) {
 		Excerpt:        "panic: boom",
 		OccurredAt:     time.Now(),
 	}}
+	occ[0].ErrorSignature = "2026-01-22T08:01:43.5719114Z --- FAIL: TestFoo (0.00s)"
 	change, err := mgr.PlanIssueUpdate(PlanInput{
 		Fingerprint: store.FingerprintRecord{
 			Fingerprint: "abc",
@@ -41,5 +42,8 @@ func TestPlanIssueUpdateCreatesBody(t *testing.T) {
 	}
 	if !strings.Contains(change.Body, "FTC:SUMMARY_START") {
 		t.Fatalf("expected summary block")
+	}
+	if strings.Contains(change.Title, "2026-") {
+		t.Fatalf("expected title timestamp to be stripped, got %q", change.Title)
 	}
 }

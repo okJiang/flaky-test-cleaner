@@ -27,6 +27,7 @@ func NormalizeErrorSignature(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.TrimSpace(s)
 	replacements := []*regexp.Regexp{
+		regexp.MustCompile(`\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b`),
 		regexp.MustCompile(`0x[0-9a-fA-F]+`),
 		regexp.MustCompile(`:\d+`),
 		regexp.MustCompile(`\b\d+(?:\.\d+)?(ms|s|m|h)\b`),

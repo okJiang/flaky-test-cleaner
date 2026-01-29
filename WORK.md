@@ -58,8 +58,8 @@
 	- 新 occurrence 到来时更新 Evidence 表格与 “last seen”
 	- infra-flake 默认不创建/更新 issue（仅记录指标/审计）
 - [x] Runner（Scheduler 的 MVP）：
-	- `--once` 默认跑一次（建议由外部 cron/CI 调度每 3 天）
-	- 未来可扩展 `--interval=72h` 常驻
+	- `--once` 跑一次（建议由外部 cron/CI 调度）
+	- 常驻模式由 `FTC_DISCOVERY_INTERVAL` / `FTC_INTERACTION_INTERVAL` 控制周期
 - [x] 单测与样例：
 	- extractor / normalize / fingerprint 的稳定性测试
 	- issue body block 更新的幂等测试
@@ -70,6 +70,182 @@
 - `--dry-run` 可打印将要创建/更新的 issue 与指纹
 - 连上真实 GitHub token + TiDB 参数时，可成功创建/更新 issue（可在 README 给出最小运行指南）
 
+### Task 3 — IssueAgent 分析与状态机推进（进行中）
+
+目标：实现 SPEC Milestone B 的“IssueAgent 初次分析”能力，并把指纹状态机从 `ISSUE_OPEN` 推进到 `TRIAGED/WAITING_FOR_SIGNAL`。
+
+子任务拆分：
+- [x] 3.1 状态存储扩展
+	- 在 `store.FingerprintRecord` 与 TiDB `fingerprints` 表中新增 `state`、`state_changed_at` 字段，默认 `DISCOVERED`。
+	- 暴露 `UpdateFingerprintState` API，约束 `DISCOVERED → ISSUE_OPEN → TRIAGED → WAITING_FOR_SIGNAL` 的前缀路径，禁止 `APPROVED_TO_FIX` 之后回退。
+	- Memory store 同步实现，补充单元测试覆盖状态迁移。
+- [x] 3.2 IssueAgent 初次分析
+	- 新建 `internal/issueagent`（或同等命名）模块，输入：fingerprint record + 最近 occurrences + classification。
+	- 输出：Markdown 评论，包含根因假设（基于 heuristics/occurrence 关键词）、复现步骤、建议修复路径、风险提示（参考 SPEC §9.2）。
+	- Comment 使用 HTML block tag 标记，以便未来幂等更新；提供最小测试验证模板渲染。
+- [x] 3.3 Runner 集成
+	- 在 issue 创建/更新后，若 fingerprint state= `ISSUE_OPEN`，调用 IssueAgent 发布评论并把状态更新为 `TRIAGED`，随后立即进入 `WAITING_FOR_SIGNAL`。
+	- Dry-run 下打印将要发布的评论摘要；真实运行需写入 GitHub 评论并记录 state。
+	- 将 IssueAgent 的动作写入 TiDB `audit_log`（action=`issueagent.initial_analysis`）以备观测。
+- [ ] 3.4 IssueAgent 深度分析（读代码上下文）
+	- [x] 3.4.1 RepoContext: 从 failing `head_sha` 的 mirror 中基于 stack `path:line` / test 定义，提取短 snippet（带 file+sha+line range + Snippet ID: S1/S2/...）。
+	- [x] 3.4.2 兼容：无 Copilot SDK 时，deterministic 评论也包含 RepoContext。
+	- [x] 3.4.3 Prompt 收紧：要求引用 snippet ID、给复现命令、给 patch plan（可选 diff 草案）、给 maintainer approval checklist。
+	- [ ] 3.4.4 RepoContext 扩展：增加函数名/套件方法等检索，snippet 上限提升到 ≤6，并做去重/排序。
+
+### Task 4 — FixAgent 与 RepoWorkspace（待规划）
+
+目标：实现 SPEC Milestone C 的许可闸门、worktree 租赁与 FixAgent 自动开 PR。
+
+子任务（初稿）：
+- [x] 4.1 RepoWorkspaceManager
+	- 配置：新增 `FTC_WORKSPACE_MIRROR`（默认 `cache/tikv-pd.git`）、`FTC_WORKSPACE_WORKTREES`（默认 `worktrees`）、`FTC_WORKSPACE_MAX`（默认 2），以及自动推导的 remote URL（`https://github.com/<owner>/<repo>.git`）。
+	- 能力：`EnsureMirror`（不存在则 `git clone --mirror`，存在则 `git fetch --prune`）；`CatFile` / `ListTree` / `Grep` 等对 mirror 的只读操作。
+	- Worktree 租赁：`Acquire(ctx, name, sha)` 创建 `git worktree add --force`，限制并发数；`Release` 触发 `git worktree remove --force` 并清理磁盘；dry-run/错误需返回明确信息。
+	- 测试：使用临时 git 仓库验证 clone/fetch、read-only 操作、租赁（含限流）以及 Release 行为。
+- [x] 4.2 许可信号监听：解析 `flaky-test-cleaner/ai-fix-approved` label 及 `/ai-fix` 评论，驱动状态转移到 `APPROVED_TO_FIX`。
+- [ ] 4.3 FixAgent MVP
+	- [x] 4.3.1 FixAgent scaffolding：接入 RepoWorkspaceManager & GitHub client，拿到 `APPROVED_TO_FIX` 指纹，落地基础注释/审计并推进状态到 `PR_OPEN`。
+	- [x] 4.3.2 Patch 构建与验证：在 worktree 内执行最小 go test / file edit钩子（Stub 可先记录 todo）。
+	- [ ] 4.3.3 PR 自动创建
+		- 监听 `PR_OPEN` 指纹，生成 `ai/fix/<fingerprint-short>` 分支，确保 workspace 中的变更会被 commit & push（先 stub，允许 dry-run）。
+		- 通过 GitHub API 创建 PR，并在 issue 及 TiDB store 中记录 PR 编号。
+		- state: `PR_OPEN` -> `PR_UPDATING` -> `PR_OPEN`，并打上 `flaky-test-cleaner/ai-pr-open` label。
+
+### Task 5 — Review Loop + Merge
+- [x] 5.1 PR 状态检测：轮询 `PR_OPEN` 指纹关联的 PR，若已 merge 则自动评论、关闭 issue 并将 state 置为 `MERGED`；若被关闭但未合并则标记 `PR_NEEDS_CHANGES`。
+- [x] 5.2 Review 反馈响应：监听 review comments / CI 失败，生成 TODO 与回复，并驱动 state `PR_NEEDS_CHANGES -> PR_UPDATING`。
+	- [x] 5.2.1 GitHub API：支持拉取 PR reviews（CHANGES_REQUESTED/APPROVED）与 commit status（CI fail）。
+	- [x] 5.2.2 Runner：当 PR 出现“changes requested / CI failure”时，将指纹从 `PR_OPEN` 推进到 `PR_NEEDS_CHANGES`。
+	- [x] 5.2.3 FixAgent：对 `PR_NEEDS_CHANGES` 指纹生成更新计划（写入/更新 TODO 文件）、创建/更新 PR 评论，并推进状态 `PR_NEEDS_CHANGES -> PR_UPDATING -> PR_OPEN`。
+	- [x] 5.2.4 审计与测试：写入 `audit_log`，为反馈提取与 comment 渲染增加单测。
+
+### Task 6 — Spec 对齐与工程改进（已完成）
+- [x] 6.1 PR 被关闭但未合并时，按 SPEC 状态机转移到 `CLOSED_WONTFIX`（而非 `PR_NEEDS_CHANGES`）。
+
+### Task 7 — CI Pipeline 与集成测试（已完成）
+
+目标：为本仓库建立可复用的 CI pipeline（lint/单测/集成测试/覆盖率），并补齐一套“可在 CI 中稳定运行”的集成测试设计与最小实现骨架。
+
+子任务拆分：
+- [x] 7.1 CI workflow：push/PR 触发，包含 gofmt/go vet/go test（unit+integration）与缓存策略
+- [x] 7.2 集成测试：使用 stub GitHub API server 驱动 Runner 端到端跑通（workflows→runs→jobs→logs→issue/comment），避免真实网络依赖
+- [x] 7.3 可测试性改造：为 GitHub client 支持可配置 base URL；Runner 支持依赖注入与延迟初始化（避免测试触发 git clone）
+- [x] 7.4 文档：在 `TEST.md` 固化测试分层策略、CI matrix、运行说明与故障排查
+
+### Task 8 — Copilot CLI SDK 集成（进行中）
+
+目标：接入 `github/copilot-sdk`（Go），用于增强 IssueAgent 初次分析评论生成（默认 best-effort 尝试启用；失败自动回退到现有 heuristic 模板）。
+
+子任务拆分：
+- [x] 8.1 知识库：补充 Copilot CLI SDK 基本信息与 Go 使用方法到 `.codex/knowledge/`
+- [x] 8.2 代码集成：新增 `internal/copilotsdk` wrapper，并通过配置开关接入 `runInitialAnalysis`
+- [x] 8.3 文档：README 增加相关环境变量/flag 说明
+- [x] 8.4 测试：`go test ./...` 全绿（SDK 集成不引入 CI 依赖）
+
+### Task 9 — Local E2E 验证支持（进行中）
+
+目标：本地跑端到端验证时，可以“读 upstream Actions 日志”但只在 fork 创建/更新 issue/PR；并支持本地 TiDB（无 TLS / 空密码）。
+
+子任务：
+- [x] 9.1 Repo read/write 分离：新增 `FTC_GITHUB_WRITE_OWNER/FTC_GITHUB_WRITE_REPO`（及 flags）
+- [x] 9.2 TiDB 本地连接：允许空密码；`TIDB_CA_CERT_PATH` 可选（无 CA 时不启用 TLS）
+- [x] 9.3 文档：README 补充本地配置示例
+- [ ] 9.4 本地 E2E：用真实 `tikv/pd` 失败 run 做一次 dry-run 验证，并确认 `okjiang/pd` 写入路径可用
+
+### Task 10 — 修复 dry-run 误报与可验证性（进行中）
+
+目标：修复 `validate.log` 中大量 `unknown-test` 与非失败日志（如 etcd config/lease timeout）被当作 flaky 的问题，并让 `--dry-run` 输出足够信息以对照 SPEC 核心字段。
+
+约束/补充需求（来自 validate.log 复跑反馈）：
+- 只关注 base branch（默认 `main`）的失败：忽略 PR 分支与 `release-*` cherry-pick 的失败。
+- 对“明显是回归/未完成代码导致的 CI 失败”（compile/build/undefined 等）不创建/更新 flaky issue。
+- 当同一测试存在父测试与子测试多条 FAIL（例如 `TestX` 与 `TestX/subcase`），只保留最细粒度（leaf）的 test 作为 flaky 记录。
+
+子任务：
+- [x] 10.1 FailureExtractor：收紧 `timeout` 匹配（仅 test timeout / deadline exceeded 等），避免匹配 `election-timeout/lease-timeout` 等配置文本；并增强 `[FAIL]` 的 test name 提取。
+- [x] 10.2 Runner dry-run 输出：打印 classification/置信度、run_url/job/sha/test_name/error_signature 摘要、excerpt 行数/长度，便于 SPEC 校验。
+- [x] 10.3 测试：补充样例日志 fixture 覆盖误报场景，`go test ./...` 全绿。
+- [x] 10.4 去重：当存在 subtest 时丢弃 parent test occurrence（仅保留 leaf）。
+- [x] 10.5 Run filter：只扫描 base branch 的 workflow runs（push event），忽略 `release-*` / PR runs。
+- [x] 10.6 Regression filter：`likely-regression` 不创建/更新 issue（仅记录 store）。
+
+### Task 11 — 常驻运行与自动轮询（已完成）
+
+目标：对齐 SPEC 的“长期运行”预期：程序作为 daemon 常驻运行，分别以不同周期执行：
+- **Discovery loop**：周期性扫描 base branch 的失败 CI runs/jobs/logs，更新 evidence + issue
+- **Interaction loop**：更高频轮询 issue/PR 的互动信号（评论/审批/review/CI），自动推进状态机与 FixAgent 迭代
+
+子任务拆分：
+- [x] 11.1 配置与 CLI
+	- 增加 `FTC_RUN_ONCE` / `--once`：运行一次完整循环后退出（便于本地验证/调试）
+	- 增加 `FTC_DISCOVERY_INTERVAL` / `--discovery-interval`：Discovery loop 周期（默认 72h；可设为 0 禁用 discovery）
+	- 增加 `FTC_INTERACTION_INTERVAL` / `--interaction-interval`：Interaction loop 周期（默认 10m；可设为 0 禁用 interaction）
+- [x] 11.2 Runner 重构
+	- 拆分 `RunOnce` 为 `DiscoveryOnce` 与 `InteractionOnce` 两个可复用的执行单元
+	- Daemon 模式复用同一个 Store（即便未启用 TiDB，也在进程内保持状态，避免每个 tick 重置）
+	- Daemon 模式错误处理：单次循环失败不退出进程（记录日志 + 下个 tick 重试）
+- [x] 11.3 优雅退出
+	- `cmd/flaky-test-cleaner/main.go` 捕获 `SIGINT/SIGTERM`，取消 context 并优雅退出（退出码 0）
+- [x] 11.4 互动信号覆盖面增强
+	- Issue：在 `WAITING_FOR_SIGNAL` 状态下轮询新评论（用于“有人互动/讨论”的检测），并持久化 comment watermark，避免重复处理
+	- PR：轮询 PR 的 issue comments（除 reviews/CI 以外的反馈渠道），并持久化 watermark，作为 `PR_NEEDS_CHANGES` 的补充触发
+- [x] 11.5 文档与样例
+	- README：明确 daemon 工作方式（无需手动重复执行），并修正文档中 FixAgent 分支名为指纹前缀
+	- `.example.env`：补充新变量与建议默认值
+	- `TEST.md`：补充 daemon/scheduler 的测试策略（仅 unit/integration；不依赖真实网络）
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
+- 2026-01-21：完成 Task 3.1（Fingerprint state 存储扩展 + API）。
+- 2026-01-21：完成 Task 3.2（IssueAgent 初次分析模板与测试）。
+- 2026-01-21：完成 Task 3.3（Runner 集成 IssueAgent + GitHub 评论 + audit log）。
+- 2026-01-21：完成 Task 4.1（RepoWorkspaceManager 基础设施）。
+- 2026-01-21：完成 Task 4.2（许可信号监听与状态推进）。
+- 2026-01-21：完成 Task 4.3.1（FixAgent scaffolding）。
+- 2026-01-21：完成 Task 4.3.2（Patch 构建与最小验证钩子）。
+- 2026-01-22：完成 Task 4.3.3（FixAgent 自动创建 PR）与 Task 5.1（PR 状态检测与 issue 自动归档）。
+- 2026-01-22：开始 Task 5.2（Review 反馈响应）。
+- 2026-01-22：完成 Task 5.2（监听 review/CI 信号并自动 follow-up）。
+- 2026-01-22：开始 Task 6（Spec 对齐与工程改进）。
+- 2026-01-22：完成 Task 6.1（PR closed 状态与 SPEC 对齐）。
+- 2026-01-22：开始 Task 7（CI pipeline 与集成测试）。
+- 2026-01-22：完成 Task 7（CI workflow + runner 集成测试 + TEST.md）。
+- 2026-01-24：开始 Task 8（Copilot CLI SDK 集成）：写入知识库，准备接入 Go SDK。
+- 2026-01-25：Copilot CLI SDK 改为默认 best-effort 启用（失败自动回退），移除 enable 开关。
+- 2026-01-24：开始 Task 9：支持本地 E2E（读 upstream，写 fork；本地 TiDB 无 TLS）。
+- 2026-01-25：改进 issue 内容（去掉 timestamp 污染签名/标题；Evidence 增加 OS；Occurrence 时间使用 run.CreatedAt），并新增 `make clean/issue` 用于清理验证创建的 issues。
+- 2026-01-29：完成 Task 11：引入常驻运行模式（Discovery/Interaction 双循环 + signal 优雅退出），并增强 issue/PR comment 轮询信号。
+- 2026-01-29：完成 Task 12：Makefile 增加常用测试/运行/清理命令（含 `make check`）。
+- 2026-01-29：完成 Task 13：修复 legacy `FTC_RUN_INTERVAL=0` 会禁用循环导致 daemon 启动失败的问题，并补充 config 单测。
+- 2026-01-29：完成 Task 14：移除 deprecated/兼容 interval（`FTC_RUN_INTERVAL`/`--interval`/`RunInterval`）与相关逻辑/文档/测试。
+
+### Task 12 — Makefile 常用命令（已完成）
+
+目标：把常用的测试/运行/开发命令固化到 `Makefile`，便于快速验证与调试。
+
+子任务：
+- [x] 12.1 Make targets：`make test/test/race/test/runner/fmt/fmt-check/vet/tidy/build/run/run/once/run/dry` 等
+- [x] 12.2 保留并完善 `clean/issue`，并补充本地清理（workspace/cache）命令
+- [x] 12.3 文档：在知识库记录 Makefile 目标与关键变量
+
+### Task 13 — Daemon 配置兼容性修复（已完成）
+
+目标：修复旧 `.env` 里设置了 `FTC_RUN_INTERVAL=0` 时导致 daemon 启动时报错的问题（legacy 变量不会意外禁用新默认循环）。
+
+子任务：
+- [x] 13.1 `internal/config`：legacy `FTC_RUN_INTERVAL` 仅在 `>0` 时覆盖 discovery/interaction；为 0 时不覆盖新默认值
+- [x] 13.2 测试：补充 config 单测覆盖（legacy=0 与 legacy>0）
+
+### Task 14 — 移除 deprecated/兼容代码（已完成）
+
+目标：由于项目尚未上线运行，移除历史兼容路径，简化配置与 runner 行为：
+- 删除 `FTC_RUN_INTERVAL` / `--interval` / `Config.RunInterval`（deprecated）
+- 删除相关 fallback/兼容逻辑与测试用例
+
+子任务：
+- [x] 14.1 `internal/config`：移除 legacy interval 字段/flag/env 处理
+- [x] 14.2 `internal/runner`：移除 legacy interval fallback 逻辑
+- [x] 14.3 文档与知识库：README / `.example.env` / `.codex/knowledge` 同步
+- [x] 14.4 测试：删改对应单测，`make check` 全绿

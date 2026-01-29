@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -35,5 +36,17 @@ func TestGoTestExtractorFindsFail(t *testing.T) {
 	}
 	if occ[0].Excerpt == "" {
 		t.Fatalf("expected excerpt")
+	}
+}
+
+func TestGoTestExtractorIgnoresTimeoutNoise(t *testing.T) {
+	b, err := os.ReadFile("testdata/noise-timeout.log")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	extractor := NewGoTestExtractor()
+	occ := extractor.Extract(Input{RawLogText: string(b)})
+	if len(occ) != 0 {
+		t.Fatalf("expected 0 occurrences, got %d", len(occ))
 	}
 }
