@@ -26,17 +26,23 @@ func NewClient(token string, timeout time.Duration) *Client {
 }
 
 func NewClientWithBaseURL(token string, timeout time.Duration, baseURL string) *Client {
+	return NewClientWithTransport(token, timeout, baseURL, nil)
+}
+
+func NewClientWithTransport(token string, timeout time.Duration, baseURL string, transport http.RoundTripper) *Client {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		baseURL = "https://api.github.com"
+	}
+	httpClient := &http.Client{Timeout: timeout}
+	if transport != nil {
+		httpClient.Transport = transport
 	}
 	return &Client{
 		token:   token,
 		timeout: timeout,
 		baseURL: baseURL,
-		http: &http.Client{
-			Timeout: timeout,
-		},
+		http:    httpClient,
 	}
 }
 

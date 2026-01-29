@@ -170,6 +170,32 @@
 - [x] 10.5 Run filter：只扫描 base branch 的 workflow runs（push event），忽略 `release-*` / PR runs。
 - [x] 10.6 Regression filter：`likely-regression` 不创建/更新 issue（仅记录 store）。
 
+### Task 11 — 常驻运行与自动轮询（已完成）
+
+目标：对齐 SPEC 的“长期运行”预期：程序作为 daemon 常驻运行，分别以不同周期执行：
+- **Discovery loop**：周期性扫描 base branch 的失败 CI runs/jobs/logs，更新 evidence + issue
+- **Interaction loop**：更高频轮询 issue/PR 的互动信号（评论/审批/review/CI），自动推进状态机与 FixAgent 迭代
+
+子任务拆分：
+- [x] 11.1 配置与 CLI
+	- 增加 `FTC_RUN_ONCE` / `--once`：运行一次完整循环后退出（便于本地验证/调试）
+	- 增加 `FTC_DISCOVERY_INTERVAL` / `--discovery-interval`：Discovery loop 周期（默认 72h；可设为 0 禁用 discovery）
+	- 增加 `FTC_INTERACTION_INTERVAL` / `--interaction-interval`：Interaction loop 周期（默认 10m；可设为 0 禁用 interaction）
+	- 保持兼容：`FTC_RUN_INTERVAL` / `--interval` 继续支持（等价于同时设置 discovery+interaction）
+- [x] 11.2 Runner 重构
+	- 拆分 `RunOnce` 为 `DiscoveryOnce` 与 `InteractionOnce` 两个可复用的执行单元
+	- Daemon 模式复用同一个 Store（即便未启用 TiDB，也在进程内保持状态，避免每个 tick 重置）
+	- Daemon 模式错误处理：单次循环失败不退出进程（记录日志 + 下个 tick 重试）
+- [x] 11.3 优雅退出
+	- `cmd/flaky-test-cleaner/main.go` 捕获 `SIGINT/SIGTERM`，取消 context 并优雅退出（退出码 0）
+- [x] 11.4 互动信号覆盖面增强
+	- Issue：在 `WAITING_FOR_SIGNAL` 状态下轮询新评论（用于“有人互动/讨论”的检测），并持久化 comment watermark，避免重复处理
+	- PR：轮询 PR 的 issue comments（除 reviews/CI 以外的反馈渠道），并持久化 watermark，作为 `PR_NEEDS_CHANGES` 的补充触发
+- [x] 11.5 文档与样例
+	- README：明确 daemon 工作方式（无需手动重复执行），并修正文档中 FixAgent 分支名为指纹前缀
+	- `.example.env`：补充新变量与建议默认值
+	- `TEST.md`：补充 daemon/scheduler 的测试策略（仅 unit/integration；不依赖真实网络）
+
 ### Progress Log
 - 2026-01-21：初始化 WORK.md，完成 SPEC.md 与知识库记录。
 - 2026-01-21：完成 MVP Go 实现（discover → issue）、测试与文档。
@@ -191,3 +217,4 @@
 - 2026-01-25：Copilot CLI SDK 改为默认 best-effort 启用（失败自动回退），移除 enable 开关。
 - 2026-01-24：开始 Task 9：支持本地 E2E（读 upstream，写 fork；本地 TiDB 无 TLS）。
 - 2026-01-25：改进 issue 内容（去掉 timestamp 污染签名/标题；Evidence 增加 OS；Occurrence 时间使用 run.CreatedAt），并新增 `make clean/issue` 用于清理验证创建的 issues。
+- 2026-01-29：完成 Task 11：引入常驻运行模式（Discovery/Interaction 双循环 + signal 优雅退出），并增强 issue/PR comment 轮询信号。

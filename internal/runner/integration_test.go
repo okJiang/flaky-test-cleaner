@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/okJiang/flaky-test-cleaner/internal/config"
+	"github.com/okJiang/flaky-test-cleaner/internal/github"
 	"github.com/okJiang/flaky-test-cleaner/internal/store"
 )
 
@@ -123,14 +123,11 @@ func TestRunOnce_EndToEnd_WithStubGitHubAPI(t *testing.T) {
 		_, _ = w.Write([]byte("unexpected request"))
 	})
 
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
 	cfg := config.Config{
 		GitHubOwner:           owner,
 		GitHubRepo:            repo,
 		GitHubBaseBranch:      "main",
-		GitHubAPIBaseURL:      srv.URL,
+		GitHubAPIBaseURL:      "http://stub",
 		GitHubReadToken:       "read-token",
 		GitHubIssueToken:      "issue-token",
 		WorkflowName:          "PD Test",
@@ -146,7 +143,8 @@ func TestRunOnce_EndToEnd_WithStubGitHubAPI(t *testing.T) {
 		RunInterval:           0,
 	}
 
-	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem}); err != nil {
+	gh := github.NewClientWithTransport("token", 2*time.Second, "http://stub", newHandlerTransport(mux))
+	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem, GitHubRead: gh, GitHubIssue: gh}); err != nil {
 		t.Fatalf("RunOnceWithDeps: %v", err)
 	}
 

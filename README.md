@@ -24,7 +24,7 @@ cp .example.env .env
 set -a; source ./.env; set +a
 
 # 4) Run a safe dry-run first (no GitHub writes)
-go run ./cmd/flaky-test-cleaner --dry-run
+go run ./cmd/flaky-test-cleaner --once --dry-run
 
 # 5) Real run (writes to GitHub write repo)
 # Either set FTC_DRY_RUN=false in .env, or run without --dry-run:
@@ -76,19 +76,23 @@ This tool is designed to be run periodically (cron / GitHub Actions schedule / `
 - On the next non-dry-run execution after approval, FixAgent:
   - Leases a git worktree in `FTC_WORKSPACE_WORKTREES`,
   - Writes/updates `FIX_AGENT_TODO.md`, runs `go test ./...` (best-effort),
-  - Creates branch `ai/fix/<fingerprint>`, pushes it to the write repo, and opens a PR targeting `FTC_BASE_BRANCH`.
+  - Creates branch `ai/fix/<fingerprint-prefix>` (first 12 chars), pushes it to the write repo, and opens a PR targeting `FTC_BASE_BRANCH`.
 - Ensure your environment can `git push` to the write repo (e.g. `gh auth login` or a configured git credential helper), in addition to `FTC_GITHUB_ISSUE_TOKEN` for the GitHub API.
 
 6) Review / CI feedback loop (you + tool)
-- Review the PR normally; if reviewers request changes or CI fails, re-run the tool: it will append a checklist to `FIX_AGENT_TODO.md`, push follow-up commits, and comment on the PR.
+- Review the PR normally:
+  - In daemon mode, the tool will poll and follow up automatically.
+  - In `--once` mode, re-run the tool to process new review/CI feedback.
 
 7) Resolution (tool)
 - If the PR is merged, the tool comments and closes the issue and marks the fingerprint as resolved.
 - If the PR is closed without merging, the tool marks the fingerprint as `CLOSED_WONTFIX`.
 
 Scheduling tips:
-- Run once (default): `go run ./cmd/flaky-test-cleaner`
-- Run continuously: `go run ./cmd/flaky-test-cleaner --interval 72h`
+- Run once: `go run ./cmd/flaky-test-cleaner --once`
+- Run continuously (default): `go run ./cmd/flaky-test-cleaner`
+- Customize loops: `go run ./cmd/flaky-test-cleaner --discovery-interval 72h --interaction-interval 10m`
+- Legacy: `--interval` sets both loops (deprecated)
 
 ## Configuration
 
@@ -105,7 +109,10 @@ Environment variables:
 - `FTC_MAX_JOBS` (default `50`)
 - `FTC_CONFIDENCE_THRESHOLD` (default `0.75`)
 - `FTC_REQUEST_TIMEOUT` (default `30s`)
-- `FTC_RUN_INTERVAL` (default `0`, run once)
+- `FTC_RUN_ONCE` (default `false`)
+- `FTC_DISCOVERY_INTERVAL` (default `72h`)
+- `FTC_INTERACTION_INTERVAL` (default `10m`)
+- `FTC_RUN_INTERVAL` (deprecated; sets both loops)
 - `FTC_TIDB_ENABLED` (default `false`)
 - `FTC_BASE_BRANCH` (default `master`, branch used for opening PRs)
 - `FTC_WORKSPACE_MIRROR` (default `cache/tikv-pd.git`, bare mirror path)
@@ -121,7 +128,10 @@ Flags:
 - `--dry-run` (default true)
 - `--owner` / `--repo` (source repo for Actions logs)
 - `--write-owner` / `--write-repo` (write repo for issues/PRs)
-- `--interval`
+- `--once`
+- `--discovery-interval`
+- `--interaction-interval`
+- `--interval` (deprecated)
 - `--copilot-model`
 - `--copilot-timeout`
 - `--copilot-log-level`

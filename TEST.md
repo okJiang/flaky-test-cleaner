@@ -30,10 +30,11 @@
 
 本仓库的集成测试策略：
 
-- 使用 `httptest.Server` 模拟 GitHub REST API（workflows/runs/jobs/logs、issue/comment/label 等必要 endpoint）
+- 使用自定义 `http.RoundTripper` + `http.ServeMux`（基于 `httptest.NewRecorder`）模拟 GitHub REST API
+  - 不需要监听本地端口（避免沙箱环境禁用 bind/listen 导致测试失败）
 - 使用 `store.NewMemory()` 作为状态存储（避免真实 MySQL/TiDB）
 - 通过 runner 的依赖注入入口 `runner.RunOnceWithDeps` 注入 Memory store，测试结束后可直接断言 state
-- 通过 `FTC_GITHUB_API_BASE_URL`（或 config 字段）把 GitHub client 指向 stub server
+- 通过 `runner.RunOnceDeps` 注入 GitHub client（使用上面的 stub transport）
 - **不触发 git clone / worktree**：Runner 内对 workspace/fixagent 做延迟初始化，仅在确实需要 FixAgent 时才触发
 
 当前已落地的集成测试：
@@ -91,7 +92,7 @@
   - env：`FTC_GITHUB_API_BASE_URL`
   - flag：`--github-api-base-url`
 - Runner 必须支持依赖注入（至少 Store）
-  - 集成测试通过 `runner.RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem})` 注入 Memory store
+  - 集成测试通过 `runner.RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem, GitHubRead: gh, GitHubIssue: gh})` 注入 Memory store 与 stub GitHub client
 - Runner 对 FixAgent/Workspace 相关行为采用延迟初始化
   - Discovery/Issue 阶段不需要 workspace，因此不应触发 `git clone --mirror`
 
@@ -287,4 +288,3 @@ TiDB store（E2E/可选）：
 - Integration/E2E: 使用本地临时 git repo + stub GitHub API
    - Case: `Attempt` 在非 dry-run 下会：创建分支、commit、push（需本地 origin）、创建 PR 并写回 store
    - 期望：`PRNumber` 写入 store，issue 增加 `ai-pr-open` label
-

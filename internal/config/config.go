@@ -46,11 +46,46 @@ type Config struct {
 	WorkspaceMaxWorktrees int
 
 	RequestTimeout time.Duration
-	RunInterval    time.Duration
+	// Deprecated: RunInterval is kept for backward compatibility. Prefer
+	// DiscoveryInterval / InteractionInterval.
+	RunInterval time.Duration
+
+	// RunOnce forces a single cycle and exit.
+	RunOnce bool
+
+	// DiscoveryInterval controls how often the bot scans CI failures and updates issues.
+	// Set to 0 to disable discovery.
+	DiscoveryInterval time.Duration
+
+	// InteractionInterval controls how often the bot polls issue/PR signals (approval/review/CI)
+	// and drives FixAgent follow-ups. Set to 0 to disable interaction.
+	InteractionInterval time.Duration
 
 	CopilotModel    string
 	CopilotTimeout  time.Duration
 	CopilotLogLevel string
+}
+
+type durationValue struct {
+	target *time.Duration
+	set    bool
+}
+
+func (d *durationValue) String() string {
+	if d == nil || d.target == nil {
+		return ""
+	}
+	return d.target.String()
+}
+
+func (d *durationValue) Set(s string) error {
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d.target = v
+	d.set = true
+	return nil
 }
 
 func FromEnvAndFlags(args []string) (Config, error) {
@@ -86,11 +121,19 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	cfg.WorkspaceMaxWorktrees = envIntOr("FTC_WORKSPACE_MAX", 2)
 
 	cfg.RequestTimeout = envDurationOr("FTC_REQUEST_TIMEOUT", 30*time.Second)
+
+	cfg.RunOnce = envBoolOr("FTC_RUN_ONCE", false)
 	cfg.RunInterval = envDurationOr("FTC_RUN_INTERVAL", 0)
+	cfg.DiscoveryInterval = envDurationOr("FTC_DISCOVERY_INTERVAL", 72*time.Hour)
+	cfg.InteractionInterval = envDurationOr("FTC_INTERACTION_INTERVAL", 10*time.Minute)
 
 	cfg.CopilotModel = envOr("FTC_COPILOT_MODEL", "gpt-5")
 	cfg.CopilotTimeout = envDurationOr("FTC_COPILOT_TIMEOUT", 60*time.Second)
 	cfg.CopilotLogLevel = envOr("FTC_COPILOT_LOG_LEVEL", "error")
+
+	var legacyInterval durationValue = durationValue{target: &cfg.RunInterval}
+	var discoveryInterval durationValue = durationValue{target: &cfg.DiscoveryInterval}
+	var interactionInterval durationValue = durationValue{target: &cfg.InteractionInterval}
 
 	fs.StringVar(&cfg.GitHubOwner, "owner", cfg.GitHubOwner, "GitHub repository owner (source for Actions logs)")
 	fs.StringVar(&cfg.GitHubRepo, "repo", cfg.GitHubRepo, "GitHub repository name (source for Actions logs)")
@@ -107,12 +150,38 @@ func FromEnvAndFlags(args []string) (Config, error) {
 	fs.StringVar(&cfg.WorkspaceMirrorDir, "workspace-mirror", cfg.WorkspaceMirrorDir, "Path to bare mirror used by RepoWorkspaceManager")
 	fs.StringVar(&cfg.WorkspaceWorktreesDir, "workspace-dir", cfg.WorkspaceWorktreesDir, "Path holding RepoWorkspaceManager worktrees")
 	fs.IntVar(&cfg.WorkspaceMaxWorktrees, "workspace-max", cfg.WorkspaceMaxWorktrees, "Maximum concurrent worktrees to lease")
-	fs.DurationVar(&cfg.RunInterval, "interval", cfg.RunInterval, "Interval to run continuously (0 for run once)")
+	fs.BoolVar(&cfg.RunOnce, "once", cfg.RunOnce, "Run one cycle and exit (useful for local validation)")
+	fs.Var(&legacyInterval, "interval", "Deprecated: sets both --discovery-interval and --interaction-interval")
+	fs.Var(&discoveryInterval, "discovery-interval", "Interval to scan CI failures and update issues (0 disables discovery)")
+	fs.Var(&interactionInterval, "interaction-interval", "Interval to poll issue/PR signals and drive FixAgent (0 disables interaction)")
 	fs.StringVar(&cfg.CopilotModel, "copilot-model", cfg.CopilotModel, "Copilot model ID (e.g. gpt-5, gpt-4.1)")
 	fs.DurationVar(&cfg.CopilotTimeout, "copilot-timeout", cfg.CopilotTimeout, "Copilot SDK timeout per request")
 	fs.StringVar(&cfg.CopilotLogLevel, "copilot-log-level", cfg.CopilotLogLevel, "Copilot CLI log level (error/info/debug)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
+	}
+
+	// Backward compatibility: --interval / FTC_RUN_INTERVAL sets both loops unless overridden
+	// by explicit discovery/interaction intervals.
+	legacySet := legacyInterval.set
+	if !legacySet {
+		_, legacySet = os.LookupEnv("FTC_RUN_INTERVAL")
+	}
+	discoverySet := discoveryInterval.set
+	if !discoverySet {
+		_, discoverySet = os.LookupEnv("FTC_DISCOVERY_INTERVAL")
+	}
+	interactionSet := interactionInterval.set
+	if !interactionSet {
+		_, interactionSet = os.LookupEnv("FTC_INTERACTION_INTERVAL")
+	}
+	if legacySet {
+		if !discoverySet {
+			cfg.DiscoveryInterval = cfg.RunInterval
+		}
+		if !interactionSet {
+			cfg.InteractionInterval = cfg.RunInterval
+		}
 	}
 
 	if cfg.GitHubOwner == "" || cfg.GitHubRepo == "" {
@@ -132,6 +201,16 @@ func FromEnvAndFlags(args []string) (Config, error) {
 			return Config{}, errors.New("TiDB enabled but TIDB_HOST/TIDB_USER not set")
 		}
 		// Local TiDB deployments may not require TLS (no CA) and may allow empty passwords.
+	}
+
+	if cfg.RunOnce {
+		if cfg.DiscoveryInterval <= 0 && cfg.InteractionInterval <= 0 {
+			return Config{}, errors.New("--once requires at least one of discovery/interaction to be enabled")
+		}
+	} else {
+		if cfg.DiscoveryInterval <= 0 && cfg.InteractionInterval <= 0 {
+			return Config{}, errors.New("daemon mode requires at least one of discovery/interaction to be enabled (set an interval or use --once)")
+		}
 	}
 
 	return cfg, nil

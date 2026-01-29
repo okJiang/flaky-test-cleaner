@@ -70,18 +70,20 @@ func validateTransition(current, next FingerprintState) error {
 }
 
 type FingerprintRecord struct {
-	Fingerprint    string
-	Repo           string
-	TestName       string
-	Framework      string
-	Class          string
-	Confidence     float64
-	IssueNumber    int
-	PRNumber       int
-	State          FingerprintState
-	StateChangedAt time.Time
-	FirstSeenAt    time.Time
-	LastSeenAt     time.Time
+	Fingerprint        string
+	Repo               string
+	TestName           string
+	Framework          string
+	Class              string
+	Confidence         float64
+	IssueNumber        int
+	PRNumber           int
+	LastIssueCommentID int64
+	LastPRCommentID    int64
+	State              FingerprintState
+	StateChangedAt     time.Time
+	FirstSeenAt        time.Time
+	LastSeenAt         time.Time
 }
 
 type Store interface {
@@ -127,8 +129,12 @@ func (m *Memory) UpsertFingerprint(ctx context.Context, rec FingerprintRecord) e
 		if rec.LastSeenAt.After(prev.LastSeenAt) {
 			prev.LastSeenAt = rec.LastSeenAt
 		}
-		prev.Class = rec.Class
-		prev.Confidence = rec.Confidence
+		if rec.Class != "" {
+			prev.Class = rec.Class
+		}
+		if rec.Confidence != 0 {
+			prev.Confidence = rec.Confidence
+		}
 		if rec.TestName != "" {
 			prev.TestName = rec.TestName
 		}
@@ -137,6 +143,12 @@ func (m *Memory) UpsertFingerprint(ctx context.Context, rec FingerprintRecord) e
 		}
 		if rec.Repo != "" {
 			prev.Repo = rec.Repo
+		}
+		if rec.LastIssueCommentID > prev.LastIssueCommentID {
+			prev.LastIssueCommentID = rec.LastIssueCommentID
+		}
+		if rec.LastPRCommentID > prev.LastPRCommentID {
+			prev.LastPRCommentID = rec.LastPRCommentID
 		}
 		prev = ensureStateDefaults(prev)
 		m.fps[rec.Fingerprint] = prev
@@ -298,6 +310,8 @@ func (t *TiDBStore) Migrate(ctx context.Context) error {
 			confidence DOUBLE NOT NULL,
 			issue_number INT NOT NULL DEFAULT 0,
 			pr_number INT NOT NULL DEFAULT 0,
+			last_issue_comment_id BIGINT NOT NULL DEFAULT 0,
+			last_pr_comment_id BIGINT NOT NULL DEFAULT 0,
 			first_seen_at TIMESTAMP NOT NULL,
 			last_seen_at TIMESTAMP NOT NULL,
 			state VARCHAR(50) NOT NULL DEFAULT 'DISCOVERED',
@@ -305,6 +319,8 @@ func (t *TiDBStore) Migrate(ctx context.Context) error {
 		)`,
 		`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS state VARCHAR(50) NOT NULL DEFAULT 'DISCOVERED'`,
 		`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+		`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS last_issue_comment_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS last_pr_comment_id BIGINT NOT NULL DEFAULT 0`,
 		`CREATE TABLE IF NOT EXISTS audit_log (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -348,30 +364,32 @@ func (t *TiDBStore) UpsertOccurrence(ctx context.Context, occ extract.Occurrence
 func (t *TiDBStore) UpsertFingerprint(ctx context.Context, rec FingerprintRecord) error {
 	rec = ensureStateDefaults(rec)
 	query := `INSERT INTO fingerprints (
-		fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at, state, state_changed_at
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+		fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, last_issue_comment_id, last_pr_comment_id, first_seen_at, last_seen_at, state, state_changed_at
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON DUPLICATE KEY UPDATE
 		repo = VALUES(repo),
 		test_name = VALUES(test_name),
 		framework = VALUES(framework),
-		class = VALUES(class),
-		confidence = VALUES(confidence),
+		class = IF(VALUES(class)='', class, VALUES(class)),
+		confidence = IF(VALUES(confidence)=0, confidence, VALUES(confidence)),
 		issue_number = IF(VALUES(issue_number)=0, issue_number, VALUES(issue_number)),
 		pr_number = IF(VALUES(pr_number)=0, pr_number, VALUES(pr_number)),
+		last_issue_comment_id = GREATEST(last_issue_comment_id, VALUES(last_issue_comment_id)),
+		last_pr_comment_id = GREATEST(last_pr_comment_id, VALUES(last_pr_comment_id)),
 		first_seen_at = LEAST(first_seen_at, VALUES(first_seen_at)),
 		last_seen_at = GREATEST(last_seen_at, VALUES(last_seen_at))`
 	_, err := t.db.ExecContext(ctx, query,
-		rec.Fingerprint, rec.Repo, rec.TestName, rec.Framework, rec.Class, rec.Confidence, rec.IssueNumber, rec.PRNumber, rec.FirstSeenAt, rec.LastSeenAt, rec.State, rec.StateChangedAt,
+		rec.Fingerprint, rec.Repo, rec.TestName, rec.Framework, rec.Class, rec.Confidence, rec.IssueNumber, rec.PRNumber, rec.LastIssueCommentID, rec.LastPRCommentID, rec.FirstSeenAt, rec.LastSeenAt, rec.State, rec.StateChangedAt,
 	)
 	return err
 }
 
 func (t *TiDBStore) GetFingerprint(ctx context.Context, fingerprint string) (*FingerprintRecord, error) {
-	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at, state, state_changed_at
+	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, last_issue_comment_id, last_pr_comment_id, first_seen_at, last_seen_at, state, state_changed_at
 		FROM fingerprints WHERE fingerprint = ?`
 	row := t.db.QueryRowContext(ctx, query, fingerprint)
 	var rec FingerprintRecord
-	if err := row.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.FirstSeenAt, &rec.LastSeenAt, &rec.State, &rec.StateChangedAt); err != nil {
+	if err := row.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.LastIssueCommentID, &rec.LastPRCommentID, &rec.FirstSeenAt, &rec.LastSeenAt, &rec.State, &rec.StateChangedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -440,7 +458,7 @@ func (t *TiDBStore) ListFingerprintsByState(ctx context.Context, state Fingerpri
 	if limit <= 0 {
 		limit = 20
 	}
-	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, first_seen_at, last_seen_at, state, state_changed_at
+	query := `SELECT fingerprint, repo, test_name, framework, class, confidence, issue_number, pr_number, last_issue_comment_id, last_pr_comment_id, first_seen_at, last_seen_at, state, state_changed_at
 		FROM fingerprints WHERE state = ? ORDER BY last_seen_at DESC LIMIT ?`
 	rows, err := t.db.QueryContext(ctx, query, state, limit)
 	if err != nil {
@@ -450,7 +468,7 @@ func (t *TiDBStore) ListFingerprintsByState(ctx context.Context, state Fingerpri
 	var out []FingerprintRecord
 	for rows.Next() {
 		var rec FingerprintRecord
-		if err := rows.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.FirstSeenAt, &rec.LastSeenAt, &rec.State, &rec.StateChangedAt); err != nil {
+		if err := rows.Scan(&rec.Fingerprint, &rec.Repo, &rec.TestName, &rec.Framework, &rec.Class, &rec.Confidence, &rec.IssueNumber, &rec.PRNumber, &rec.LastIssueCommentID, &rec.LastPRCommentID, &rec.FirstSeenAt, &rec.LastSeenAt, &rec.State, &rec.StateChangedAt); err != nil {
 			return nil, err
 		}
 		rec = ensureStateDefaults(rec)

@@ -12,6 +12,18 @@ import (
 	"time"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func newHandlerTransport(handler http.Handler) http.RoundTripper {
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, r)
+		return rr.Result(), nil
+	})
+}
+
 func TestClient_CreateIssue_RetryPreservesBody(t *testing.T) {
 	ctx := context.Background()
 
@@ -19,7 +31,7 @@ func TestClient_CreateIssue_RetryPreservesBody(t *testing.T) {
 	var firstBody string
 	var secondBody string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/repos/o/r/issues" {
 			w.WriteHeader(500)
 			return
@@ -37,10 +49,9 @@ func TestClient_CreateIssue_RetryPreservesBody(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"number":1,"title":"x","body":"y","labels":[]}`))
-	}))
-	defer srv.Close()
+	})
 
-	c := NewClientWithBaseURL("token", 2*time.Second, srv.URL)
+	c := NewClientWithTransport("token", 2*time.Second, "http://stub", newHandlerTransport(handler))
 	_, err := c.CreateIssue(ctx, "o", "r", CreateIssueInput{Title: "hello", Body: "world", Labels: []string{"l"}})
 	if err != nil {
 		t.Fatalf("CreateIssue: %v", err)
@@ -67,15 +78,14 @@ func TestNewClientWithBaseURL_TrimsSlash(t *testing.T) {
 	ctx := context.Background()
 	var gotPath string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte(`{"workflows":[]}`))
-	}))
-	defer srv.Close()
+	})
 
-	c := NewClientWithBaseURL("", 2*time.Second, srv.URL+"/")
+	c := NewClientWithTransport("", 2*time.Second, "http://stub/", newHandlerTransport(handler))
 	_, err := c.FindWorkflowByName(ctx, "o", "r", "x")
 	if err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)

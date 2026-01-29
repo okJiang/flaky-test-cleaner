@@ -143,9 +143,15 @@ type PRFeedback struct {
 	HeadSHA          string
 	ChangesRequested []github.PullRequestReview
 	CombinedStatus   github.CombinedStatus
+
+	LatestIssueCommentID int64
+	NewIssueComments     []github.IssueComment
 }
 
 func (f PRFeedback) NeedsUpdate() bool {
+	if len(f.NewIssueComments) > 0 {
+		return true
+	}
 	if len(f.ChangesRequested) > 0 {
 		return true
 	}
@@ -269,6 +275,25 @@ func renderFeedbackChecklist(fb PRFeedback) string {
 		b.WriteString("\n")
 	}
 
+	if len(fb.NewIssueComments) > 0 {
+		b.WriteString("### PR comments\n\n")
+		for _, c := range fb.NewIssueComments {
+			who := c.User.Login
+			if strings.TrimSpace(who) == "" {
+				who = "unknown"
+			}
+			snippet := strings.TrimSpace(c.Body)
+			if snippet == "" {
+				snippet = "(no body)"
+			}
+			if len(snippet) > 240 {
+				snippet = snippet[:240] + "…"
+			}
+			b.WriteString(fmt.Sprintf("- [ ] %s: %s\n", who, snippet))
+		}
+		b.WriteString("\n")
+	}
+
 	state := strings.TrimSpace(fb.CombinedStatus.State)
 	if state != "" {
 		b.WriteString("### CI status\n\n")
@@ -314,6 +339,9 @@ func buildFollowUpComment(fp store.FingerprintRecord, fb PRFeedback) string {
 	}
 	if len(fb.ChangesRequested) > 0 {
 		b.WriteString(fmt.Sprintf("- Changes requested: %d review(s)\n", len(fb.ChangesRequested)))
+	}
+	if len(fb.NewIssueComments) > 0 {
+		b.WriteString(fmt.Sprintf("- New PR comments: %d\n", len(fb.NewIssueComments)))
 	}
 	b.WriteString("\nA checklist has been appended to `FIX_AGENT_TODO.md` in the FixAgent worktree.\n")
 	b.WriteString(fmt.Sprintf("_Emitted at %s._\n", time.Now().UTC().Format(time.RFC3339)))

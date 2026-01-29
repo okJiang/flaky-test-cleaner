@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/okJiang/flaky-test-cleaner/internal/config"
+	"github.com/okJiang/flaky-test-cleaner/internal/github"
 	"github.com/okJiang/flaky-test-cleaner/internal/store"
 )
 
@@ -80,13 +80,10 @@ func TestRunOnce_InfraFlake_DoesNotCreateIssue(t *testing.T) {
 		_, _ = w.Write([]byte("unexpected"))
 	})
 
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
 	cfg := config.Config{
 		GitHubOwner:           owner,
 		GitHubRepo:            repo,
-		GitHubAPIBaseURL:      srv.URL,
+		GitHubAPIBaseURL:      "http://stub",
 		GitHubReadToken:       "read",
 		GitHubIssueToken:      "issue",
 		WorkflowName:          "PD Test",
@@ -100,7 +97,8 @@ func TestRunOnce_InfraFlake_DoesNotCreateIssue(t *testing.T) {
 		WorkspaceMaxWorktrees: 1,
 	}
 
-	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem}); err != nil {
+	gh := github.NewClientWithTransport("token", 2*time.Second, "http://stub", newHandlerTransport(mux))
+	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem, GitHubRead: gh, GitHubIssue: gh}); err != nil {
 		t.Fatalf("RunOnceWithDeps: %v", err)
 	}
 

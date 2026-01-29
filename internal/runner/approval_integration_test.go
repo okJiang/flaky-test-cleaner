@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/okJiang/flaky-test-cleaner/internal/config"
+	"github.com/okJiang/flaky-test-cleaner/internal/github"
 	"github.com/okJiang/flaky-test-cleaner/internal/store"
 )
 
@@ -54,13 +54,10 @@ func TestRunOnce_ApprovalSignal_LabelMovesToApprovedToFix(t *testing.T) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{})
 	})
 
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
 	cfg := config.Config{
 		GitHubOwner:         owner,
 		GitHubRepo:          repo,
-		GitHubAPIBaseURL:    srv.URL,
+		GitHubAPIBaseURL:    "http://stub",
 		GitHubReadToken:     "read",
 		GitHubIssueToken:    "",
 		WorkflowName:        "PD Test",
@@ -71,7 +68,8 @@ func TestRunOnce_ApprovalSignal_LabelMovesToApprovedToFix(t *testing.T) {
 		RequestTimeout:      2 * time.Second,
 	}
 
-	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem}); err != nil {
+	gh := github.NewClientWithTransport("token", 2*time.Second, "http://stub", newHandlerTransport(mux))
+	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem, GitHubRead: gh, GitHubIssue: gh}); err != nil {
 		t.Fatalf("RunOnceWithDeps: %v", err)
 	}
 
@@ -133,13 +131,10 @@ func TestRunOnce_ApprovalSignal_CommentMovesToApprovedToFix(t *testing.T) {
 		}})
 	})
 
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
 	cfg := config.Config{
 		GitHubOwner:         owner,
 		GitHubRepo:          repo,
-		GitHubAPIBaseURL:    srv.URL,
+		GitHubAPIBaseURL:    "http://stub",
 		GitHubReadToken:     "read",
 		WorkflowName:        "PD Test",
 		MaxRuns:             1,
@@ -149,7 +144,8 @@ func TestRunOnce_ApprovalSignal_CommentMovesToApprovedToFix(t *testing.T) {
 		RequestTimeout:      2 * time.Second,
 	}
 
-	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem}); err != nil {
+	gh := github.NewClientWithTransport("token", 2*time.Second, "http://stub", newHandlerTransport(mux))
+	if err := RunOnceWithDeps(ctx, cfg, RunOnceDeps{Store: mem, GitHubRead: gh, GitHubIssue: gh}); err != nil {
 		t.Fatalf("RunOnceWithDeps: %v", err)
 	}
 
