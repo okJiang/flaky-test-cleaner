@@ -1,0 +1,24 @@
+## MVP Go implementation layout (2026-01-21)
+
+- `cmd/flaky-test-cleaner/main.go` wires `config.FromEnvAndFlags` with `runner.Run`, using `context.Background()` and exits non-zero on error.
+- `internal/config/config.go` merges env + flags; enforces `FTC_GITHUB_READ_TOKEN`, optional issue token when `--dry-run=false`, and TiDB TLS inputs when `FTC_TIDB_ENABLED=true`.
+- `internal/runner/run_once.go` orchestrates the MVP loop:
+  - Builds GitHub clients (read + optional write), store (`Memory` or `TiDB`), extractor (`GoTestExtractor`), classifier (`Heuristic`), and `issue.Manager`.
+  - For each failed workflow run/job it downloads logs, extracts occurrences, sanitizes excerpts, normalizes signatures, computes fingerprint v1 (`internal/fingerprint`), and persists via `store.Store`.
+  - Infra flakes (`classify.ClassInfraFlake`) are dropped before issue planning.
+  - Issue planning uses `issue.Manager.PlanIssueUpdate` with last 5 occurrences and applies changes (respecting `--dry-run`).
+- `internal/github/client.go` currently implements the verified endpoints from SPEC §6.5 (workflow lookup, runs, jobs, job logs) plus Issue CRUD + label ensures, with retry on HTTP 429/5xx and RunnerOS detection via `labels`.
+- `internal/extract/extract.go` detects go test failure markers (`--- FAIL:`, `[FAIL]`, `panic:`, `DATA RACE`, `timeout`), captures ±40 line windows (max 120 lines), and deduplicates by `test/error` pair before emitting `extract.Occurrence`.
+- `internal/classify/classify.go` heuristic classifier tags infra keywords, regression keywords, or flaky keywords with confidences (0.8–0.9) and leaves unknown at 0.5.
+- `internal/store/store.go`:
+  - `Memory` store for dry-runs/tests.
+  - `TiDBStore` migrates schema (tables `occurrences`, `fingerprints`, `audit_log`, `costs` per SPEC §10) and now keeps `state` + `state_changed_at` columns plus `Store.UpdateFingerprintState` guardrails (`DISCOVERED → ISSUE_OPEN → TRIAGED → WAITING_FOR_SIGNAL → ...`).
+- `internal/issue/issue.go` produces deterministic titles (`[flaky] <test> — <sig>`), wraps body sections in `<!-- FTC:NAME_START -->` comments, and ensures labels prefixed with `flaky-test-cleaner/`.
+- `internal/issueagent/issueagent.go` (Task 3.2) renders the initial AI analysis comment with guarded block markers, heuristic hypotheses (panic/timeout/race/network), reproduction commands (`go test ./... -run '^TestName$' -count=30 -race`), next actions, risk notes, and evidence bullets.
+- `internal/runner/run_once.go` now detects brand-new fingerprints (state `DISCOVERED`), links created issues to state `ISSUE_OPEN`, invokes `issueagent.Agent` to post the first comment (via `github.Client.CreateIssueComment`), and advances the state machine to `TRIAGED` then `WAITING_FOR_SIGNAL` while logging to TiDB `audit_log` through `store.RecordAudit`.
+- `internal/workspace` (Task 4.1) manages the bare mirror + worktree lifecycle: `Manager.Ensure` clones/fetches the repo (`git clone --mirror` + `git fetch --prune`), `CatFile`/`ListTree`/`Grep`/`HasPath` proxy read-only commands against the mirror, and `Acquire`/`Lease.Release` wrap `git worktree add/remove` with concurrency limits (`FTC_WORKSPACE_MAX`) and on-disk cleanup.
+- Task 4.2 adds approval signal detection: `store` exposes `ListFingerprintsByState`, `runner` polls WAITING_FOR_SIGNAL fingerprints each run, and `github.Client` now lists labels/comments so `/ai-fix` comments or `flaky-test-cleaner/ai-fix-approved` labels transition the fingerprint to `APPROVED_TO_FIX` with audit logging.
+- Task 4.3.1 introduces `internal/fixagent`: once fingerprints reach `APPROVED_TO_FIX`, runner acquires a workspace lease, posts a preparation comment, records audit entries, and transitions the state to `PR_OPEN` (dry-run safe), laying groundwork for automated patch generation.
+- Task 4.3.2 enhances FixAgent to drop a `FIX_AGENT_TODO.md` scaffold per workspace and executes `go test ./...` inside the leased worktree, embedding the test summary into the GitHub comment so maintainers can see validation status.
+- Task 4.3.3 wires FixAgent to create `ai/fix/<fingerprint>` branches, commit & push the scaffold changes, open GitHub PRs (via new client helpers), tag issues with `flaky-test-cleaner/ai-pr-open`, and persist the PR number/state back into TiDB.
+- Task 5.1 adds PR lifecycle monitoring: runner polls `PR_OPEN`/`PR_NEEDS_CHANGES` fingerprints, fetches PR state via `github.GetPullRequest`, auto-closes issues/comments on merge (state → `MERGED`) or reverts to `PR_NEEDS_CHANGES` when a PR is closed without merging.

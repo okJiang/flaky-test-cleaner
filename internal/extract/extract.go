@@ -66,10 +66,11 @@ func (e *GoTestExtractor) Extract(in Input) []Occurrence {
 		kind string
 	}{
 		{regexp.MustCompile(`--- FAIL: ([^\s]+)`), "go-test-fail"},
-		{regexp.MustCompile(`\[FAIL\]`), "ginkgo-fail"},
+		{regexp.MustCompile(`^\[FAIL\]\s+(.+)$`), "ginkgo-fail"},
 		{regexp.MustCompile(`panic:`), "panic"},
 		{regexp.MustCompile(`DATA RACE`), "race"},
-		{regexp.MustCompile(`timeout`), "timeout"},
+		// Avoid matching config keys like election-timeout / lease-timeout.
+		{regexp.MustCompile(`(?i)(panic: test timed out after|test timed out after|context deadline exceeded|deadline exceeded)`), "timeout"},
 	}
 
 	var out []Occurrence
@@ -79,15 +80,32 @@ func (e *GoTestExtractor) Extract(in Input) []Occurrence {
 			if !p.re.MatchString(line) {
 				continue
 			}
+
 			name := ""
-			if matches := p.re.FindStringSubmatch(line); len(matches) > 1 {
-				name = matches[1]
+			switch p.kind {
+			case "go-test-fail":
+				if matches := p.re.FindStringSubmatch(line); len(matches) > 1 {
+					name = matches[1]
+				}
+			case "ginkgo-fail":
+				if matches := p.re.FindStringSubmatch(line); len(matches) > 1 {
+					name = parseGinkgoFailTestName(matches[1])
+				}
 			}
+			if name == "" {
+				name = inferTestName(lines, i)
+			}
+			if strings.TrimSpace(name) == "" {
+				continue
+			}
+
 			excerpt := extractExcerpt(lines, i, 40, 40, 120)
 			errorSig := line
-			if i+1 < len(lines) {
+			// Only panic errors reliably benefit from capturing the next line.
+			if p.kind == "panic" && i+1 < len(lines) {
 				errorSig = line + "\n" + lines[i+1]
 			}
+
 			key := name + "|" + errorSig
 			if _, ok := seen[key]; ok {
 				continue
@@ -110,7 +128,69 @@ func (e *GoTestExtractor) Extract(in Input) []Occurrence {
 			})
 		}
 	}
+	return dropParentTests(out)
+}
+
+func dropParentTests(in []Occurrence) []Occurrence {
+	if len(in) == 0 {
+		return in
+	}
+	parents := map[string]struct{}{}
+	for _, o := range in {
+		name := strings.TrimSpace(o.TestName)
+		for strings.Contains(name, "/") {
+			parent := name[:strings.LastIndex(name, "/")]
+			parents[parent] = struct{}{}
+			name = parent
+		}
+	}
+	if len(parents) == 0 {
+		return in
+	}
+	out := make([]Occurrence, 0, len(in))
+	for _, o := range in {
+		if _, ok := parents[strings.TrimSpace(o.TestName)]; ok {
+			continue
+		}
+		out = append(out, o)
+	}
 	return out
+}
+
+func parseGinkgoFailTestName(rest string) string {
+	fields := strings.Fields(rest)
+	for _, f := range fields {
+		if strings.HasPrefix(f, "Test") {
+			return f
+		}
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[len(fields)-1]
+}
+
+func inferTestName(lines []string, from int) string {
+	maxBack := 200
+	reFail := regexp.MustCompile(`--- FAIL: ([^\s]+)`)
+	reRun := regexp.MustCompile(`^=== RUN\s+([^\s]+)`)
+	reGinkgoFail := regexp.MustCompile(`^\[FAIL\]\s+(.+)$`)
+
+	for i := from; i >= 0 && from-i <= maxBack; i-- {
+		line := lines[i]
+		if m := reFail.FindStringSubmatch(line); len(m) > 1 {
+			return m[1]
+		}
+		if m := reRun.FindStringSubmatch(line); len(m) > 1 {
+			return m[1]
+		}
+		if m := reGinkgoFail.FindStringSubmatch(line); len(m) > 1 {
+			if name := parseGinkgoFailTestName(m[1]); strings.TrimSpace(name) != "" {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 func extractExcerpt(lines []string, center, before, after, max int) string {

@@ -22,13 +22,27 @@ type Client struct {
 }
 
 func NewClient(token string, timeout time.Duration) *Client {
+	return NewClientWithBaseURL(token, timeout, "https://api.github.com")
+}
+
+func NewClientWithBaseURL(token string, timeout time.Duration, baseURL string) *Client {
+	return NewClientWithTransport(token, timeout, baseURL, nil)
+}
+
+func NewClientWithTransport(token string, timeout time.Duration, baseURL string, transport http.RoundTripper) *Client {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = "https://api.github.com"
+	}
+	httpClient := &http.Client{Timeout: timeout}
+	if transport != nil {
+		httpClient.Transport = transport
+	}
 	return &Client{
 		token:   token,
 		timeout: timeout,
-		baseURL: "https://api.github.com",
-		http: &http.Client{
-			Timeout: timeout,
-		},
+		baseURL: baseURL,
+		http:    httpClient,
 	}
 }
 
@@ -38,10 +52,12 @@ type Workflow struct {
 }
 
 type WorkflowRun struct {
-	ID        int64     `json:"id"`
-	HTMLURL   string    `json:"html_url"`
-	HeadSHA   string    `json:"head_sha"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	HTMLURL    string    `json:"html_url"`
+	HeadSHA    string    `json:"head_sha"`
+	HeadBranch string    `json:"head_branch"`
+	Event      string    `json:"event"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Job struct {
@@ -55,6 +71,8 @@ type Job struct {
 
 type ListWorkflowRunsOptions struct {
 	Status  string
+	Branch  string
+	Event   string
 	PerPage int
 }
 
@@ -82,6 +100,12 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, owner, repo string, workf
 	if opts.Status != "" {
 		query.Set("status", opts.Status)
 	}
+	if opts.Branch != "" {
+		query.Set("branch", opts.Branch)
+	}
+	if opts.Event != "" {
+		query.Set("event", opts.Event)
+	}
 	if opts.PerPage > 0 {
 		query.Set("per_page", strconv.Itoa(opts.PerPage))
 	}
@@ -108,10 +132,6 @@ func (c *Client) ListRunJobs(ctx context.Context, owner, repo string, runID int6
 		return nil, err
 	}
 	for i := range res.Jobs {
-		if res.Jobs[i].RunnerName != "" {
-			res.Jobs[i].RunnerOS = res.Jobs[i].RunnerName
-			continue
-		}
 		res.Jobs[i].RunnerOS = pickRunnerLabel(res.Jobs[i].Labels)
 	}
 	return res.Jobs, nil
@@ -123,9 +143,14 @@ func (c *Client) DownloadJobLogs(ctx context.Context, owner, repo string, jobID 
 }
 
 type Issue struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
+	Number int          `json:"number"`
+	Title  string       `json:"title"`
+	Body   string       `json:"body"`
+	Labels []IssueLabel `json:"labels"`
+}
+
+type IssueLabel struct {
+	Name string `json:"name"`
 }
 
 type CreateIssueInput struct {
@@ -138,6 +163,7 @@ type UpdateIssueInput struct {
 	Title  *string
 	Body   *string
 	Labels []string
+	State  *string
 }
 
 func (c *Client) GetIssue(ctx context.Context, owner, repo string, number int) (Issue, error) {
@@ -174,12 +200,150 @@ func (c *Client) UpdateIssue(ctx context.Context, owner, repo string, number int
 	if in.Labels != nil {
 		payload["labels"] = in.Labels
 	}
+	if in.State != nil {
+		payload["state"] = *in.State
+	}
 	var res Issue
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d", owner, repo, number)
 	if err := c.doJSON(ctx, http.MethodPatch, path, nil, payload, &res); err != nil {
 		return Issue{}, err
 	}
 	return res, nil
+}
+
+func (c *Client) CreateIssueComment(ctx context.Context, owner, repo string, number int, body string) error {
+	payload := map[string]any{
+		"body": body,
+	}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	return c.doJSON(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
+type IssueComment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      User      `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type User struct {
+	Login string `json:"login"`
+}
+
+type ListIssueCommentsOptions struct {
+	PerPage int
+}
+
+func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, number int, opts ListIssueCommentsOptions) ([]IssueComment, error) {
+	query := url.Values{}
+	if opts.PerPage > 0 {
+		query.Set("per_page", strconv.Itoa(opts.PerPage))
+	}
+	var res []IssueComment
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+type PullRequest struct {
+	Number   int        `json:"number"`
+	HTMLURL  string     `json:"html_url"`
+	State    string     `json:"state"`
+	Merged   bool       `json:"merged"`
+	MergedAt *time.Time `json:"merged_at"`
+	Head     PRHead     `json:"head"`
+}
+
+type PRHead struct {
+	Ref string `json:"ref"`
+	SHA string `json:"sha"`
+}
+
+type PullRequestReview struct {
+	ID          int64      `json:"id"`
+	State       string     `json:"state"`
+	Body        string     `json:"body"`
+	User        User       `json:"user"`
+	SubmittedAt *time.Time `json:"submitted_at"`
+}
+
+func (c *Client) ListPullRequestReviews(ctx context.Context, owner, repo string, number int) ([]PullRequestReview, error) {
+	var res []PullRequestReview
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+type CombinedStatus struct {
+	State    string   `json:"state"`
+	Statuses []Status `json:"statuses"`
+}
+
+type Status struct {
+	State       string    `json:"state"`
+	Context     string    `json:"context"`
+	Description string    `json:"description"`
+	TargetURL   string    `json:"target_url"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (c *Client) GetCombinedStatus(ctx context.Context, owner, repo, ref string) (CombinedStatus, error) {
+	var res CombinedStatus
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/status", owner, repo, ref)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &res); err != nil {
+		return CombinedStatus{}, err
+	}
+	return res, nil
+}
+
+type CreatePullRequestInput struct {
+	Title string
+	Head  string
+	Base  string
+	Body  string
+	Draft bool
+}
+
+func (c *Client) CreatePullRequest(ctx context.Context, owner, repo string, in CreatePullRequestInput) (PullRequest, error) {
+	payload := map[string]any{
+		"title": in.Title,
+		"head":  in.Head,
+		"base":  in.Base,
+		"body":  in.Body,
+	}
+	if in.Draft {
+		payload["draft"] = true
+	}
+	var pr PullRequest
+	path := fmt.Sprintf("/repos/%s/%s/pulls", owner, repo)
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, payload, &pr); err != nil {
+		return PullRequest{}, err
+	}
+	return pr, nil
+}
+
+func (c *Client) AddIssueLabels(ctx context.Context, owner, repo string, number int, labels []string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+	payload := map[string]any{
+		"labels": labels,
+	}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels", owner, repo, number)
+	return c.doJSON(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
+func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (PullRequest, error) {
+	var pr PullRequest
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &pr); err != nil {
+		return PullRequest{}, err
+	}
+	return pr, nil
 }
 
 func (c *Client) EnsureLabels(ctx context.Context, owner, repo string, labels []string) error {
@@ -210,16 +374,16 @@ func (e *apiError) Error() string {
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, payload any, out any) error {
-	var body io.Reader
+	var payloadBytes []byte
 	if payload != nil {
 		b, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(b)
+		payloadBytes = b
 	}
 
-	respBody, status, err := c.do(ctx, method, path, query, body, "application/vnd.github+json")
+	respBody, status, err := c.do(ctx, method, path, query, payloadBytes, "application/vnd.github+json")
 	if err != nil {
 		return err
 	}
@@ -236,7 +400,15 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 }
 
 func (c *Client) doBytes(ctx context.Context, method, path string, query url.Values, payload io.Reader) ([]byte, error) {
-	respBody, status, err := c.do(ctx, method, path, query, payload, "application/vnd.github+json")
+	var payloadBytes []byte
+	if payload != nil {
+		b, err := io.ReadAll(payload)
+		if err != nil {
+			return nil, err
+		}
+		payloadBytes = b
+	}
+	respBody, status, err := c.do(ctx, method, path, query, payloadBytes, "application/vnd.github+json")
 	if err != nil {
 		return nil, err
 	}
@@ -249,24 +421,29 @@ func (c *Client) doBytes(ctx context.Context, method, path string, query url.Val
 	return respBody, nil
 }
 
-func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader, accept string) ([]byte, int, error) {
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, payload []byte, accept string) ([]byte, int, error) {
 	urlStr := c.baseURL + path
 	if query != nil && len(query) > 0 {
 		urlStr = urlStr + "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, method, urlStr, body)
-	if err != nil {
-		return nil, 0, err
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	req.Header.Set("Accept", accept)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 
 	for attempt := 0; attempt < 2; attempt++ {
+		var body io.Reader
+		if payload != nil {
+			body = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, urlStr, body)
+		if err != nil {
+			return nil, 0, err
+		}
+		if c.token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		}
+		req.Header.Set("Accept", accept)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return nil, 0, err

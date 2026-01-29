@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -54,7 +55,10 @@ func (m *Manager) PlanIssueUpdate(in PlanInput) (PlannedChange, error) {
 	if shortSig == "" {
 		shortSig = "unknown-error"
 	}
-	title := fmt.Sprintf("[flaky] %s — %s", name, shortSig)
+	title := fmt.Sprintf("[flaky] %s", name)
+	if name == "unknown-test" {
+		title = fmt.Sprintf("[flaky] %s — %s", name, shortSig)
+	}
 	labels := defaultLabels(in.Classification)
 	body := buildBody(in, labels)
 
@@ -135,10 +139,10 @@ func buildBody(in PlanInput, labels []string) string {
 		formatTime(lastSeen),
 	)
 
-	evidence := "## Evidence\n\n| Run | Workflow | Job | Commit | Test | Error Signature |\n| --- | --- | --- | --- | --- | --- |\n"
+	evidence := "## Evidence\n\n| Run | Commit | Test | Error Signature |\n| --- | --- | --- | --- |\n"
 	for _, occ := range in.Occurrences {
-		evidence += fmt.Sprintf("| [%d](%s) | %s | %s | %s | %s | %s |\n",
-			occ.RunID, occ.RunURL, occ.Workflow, occ.JobName, shortSHA(occ.HeadSHA), safe(occ.TestName), summarizeSignature(occ.ErrorSignature),
+		evidence += fmt.Sprintf("| [%d](%s) | %s | %s | %s |\n",
+			occ.RunID, occ.RunURL, shortSHA(occ.HeadSHA), safe(occ.TestName), summarizeSignature(occ.ErrorSignature),
 		)
 	}
 
@@ -152,9 +156,7 @@ func buildBody(in PlanInput, labels []string) string {
 		)
 	}
 
-	nextActions := "## Next Actions\n\n- [ ] Re-run the failing test to confirm reproducibility\n- [ ] Check recent changes around the failing test\n- [ ] Consider adding retry/timeout stabilization if flaky\n"
-
-	automation := fmt.Sprintf("## Automation\n\n- Fingerprint: `%s`\n- Labels: %s\n- Last scan: %s\n",
+	automation := fmt.Sprintf("<details>\n<summary>Automation</summary>\n\n- Fingerprint: `%s`\n- Labels: %s\n- Last scan: %s\n</details>\n",
 		in.Fingerprint.Fingerprint,
 		strings.Join(labels, ", "),
 		formatTime(time.Now()),
@@ -164,7 +166,6 @@ func buildBody(in PlanInput, labels []string) string {
 		wrapBlock("SUMMARY", summary),
 		wrapBlock("EVIDENCE", evidence),
 		wrapBlock("EXCERPTS", excerpts),
-		wrapBlock("NEXT_ACTIONS", nextActions),
 		wrapBlock("AUTOMATION", automation),
 	)
 }
@@ -179,6 +180,9 @@ func joinBlocks(blocks ...string) string {
 
 func summarizeSignature(sig string) string {
 	line := strings.TrimSpace(strings.SplitN(sig, "\n", 2)[0])
+	// GitHub Actions log lines are often prefixed with RFC3339 timestamps.
+	reTS := regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\s+`)
+	line = strings.TrimSpace(reTS.ReplaceAllString(line, ""))
 	if len(line) > 120 {
 		return line[:120] + "..."
 	}
