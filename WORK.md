@@ -27,27 +27,27 @@
 - [x] 2.3 实现配置加载与 env/flag 兼容（保留 `FTC_*` 变量）
 - [x] 2.4 基础单测与 `go test ./...` 通过
 
-### Task 3 — Phase B/C: Discovery + Store（进行中）
-- [ ] 3.1 `internal/adapters/github`：Actions 读取、Issue/PR 写接口、重试与限速
-- [ ] 3.2 `internal/extract` / `internal/fingerprint` / `internal/classify`：失败提取、签名归一、分类
-- [ ] 3.3 `internal/adapters/store`：Memory + TiDB（迁移、幂等写入、状态机约束）
-- [ ] 3.4 `internal/usecase/discovery`：拉取 run/job/log 并驱动 issue 规划
+### Task 3 — Phase B/C: Discovery + Store（已完成）
+- [x] 3.1 `internal/adapters/github`：Actions 读取、Issue/PR 写接口、重试与限速
+- [x] 3.2 `internal/extract` / `internal/fingerprint` / `internal/classify`：失败提取、签名归一、分类
+- [x] 3.3 `internal/adapters/store`：Memory + TiDB（迁移、幂等写入、状态机约束）
+- [x] 3.4 `internal/usecase/discovery`：拉取 run/job/log 并驱动 issue 规划
 
-### Task 4 — Phase D/E: IssueAgent + 互动审批（待开始）
-- [ ] 4.1 `internal/issue`：FTC block 幂等渲染
-- [ ] 4.2 `internal/issueagent`：初次分析评论（deterministic + 可选 Copilot）
-- [ ] 4.3 `internal/usecase/interaction`：审批信号（label/`/ai-fix`）与 comment watermark
+### Task 4 — Phase D/E: IssueAgent + 互动审批（已完成）
+- [x] 4.1 `internal/issue`：FTC block 幂等渲染
+- [x] 4.2 `internal/issueagent`：初次分析评论（deterministic + 可选 Copilot）
+- [x] 4.3 `internal/usecase/interaction`：审批信号（label/`/ai-fix`）与 comment watermark
 
-### Task 5 — Phase F/G: Workspace + FixAgent + Review Loop（待开始）
-- [ ] 5.1 `internal/workspace`：mirror/worktree 生命周期与并发控制
-- [ ] 5.2 `internal/fixagent`：准备修复、建分支、提交、推送、创建 PR
-- [ ] 5.3 `internal/usecase/review`：CHANGES_REQUESTED/CI failure 驱动 `PR_NEEDS_CHANGES -> PR_UPDATING -> PR_OPEN`
-- [ ] 5.4 终态处理：merged 关闭 issue，closed 未合并置 `CLOSED_WONTFIX`
+### Task 5 — Phase F/G: Workspace + FixAgent + Review Loop（已完成）
+- [x] 5.1 `internal/workspace`：mirror/worktree 生命周期与并发控制
+- [x] 5.2 `internal/fixagent`：准备修复、建分支、提交、推送、创建 PR
+- [x] 5.3 `internal/usecase/review`：CHANGES_REQUESTED/CI failure 驱动 `PR_NEEDS_CHANGES -> PR_UPDATING -> PR_OPEN`
+- [x] 5.4 终态处理：merged 关闭 issue，closed 未合并置 `CLOSED_WONTFIX`
 
-### Task 6 — Phase H/I: 测试、CI、文档与收尾（待开始）
-- [ ] 6.1 单元/集成测试补齐（discovery + interaction 主链路）
-- [ ] 6.2 CI workflow、Makefile、README、TEST 对齐
-- [ ] 6.3 dry-run 验证输出与审计日志检查
+### Task 6 — Phase H/I: 测试、CI、文档与收尾（进行中）
+- [x] 6.1 单元/集成测试补齐（discovery + interaction 主链路）
+- [x] 6.2 CI workflow、Makefile、README、TEST 对齐
+- [x] 6.3 dry-run 验证输出与审计日志检查
 - [ ] 6.4 每个子任务完成后 commit & push
 - [ ] 6.5 知识库 `.codex/knowledge/*.md` 记录实现事实与代码位置
 
@@ -55,3 +55,6 @@
 - 2026-02-08：从 `6831cfc` 创建 `worktrees/rebuild-6831cfc` 与分支 `codex/rebuild-from-6831cfc`。
 - 2026-02-08：完成规范与现状复盘，开始 Phase A 重建。
 - 2026-02-08：完成 Phase A（main/config/domain/ports/runtime/noop + 单测），`go test ./...` 通过。
+- 2026-02-08：完成 Phase B/C（GitHub adapter、extract/fingerprint/classify、Memory+TiDB store、DiscoveryOnce）。
+- 2026-02-08：完成 Phase D/E/F/G（IssueAgent、审批信号、workspace、FixAgent、PR feedback loop、终态收敛）。
+- 2026-02-08：完成 Phase H 主要交付（README/TEST/Makefile/CI），当前 `go test ./... -count=1` 全绿。

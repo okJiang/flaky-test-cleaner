@@ -24,7 +24,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	rt, err := runtime.New(cfg, usecase.NewNoop(), usecase.NewNoop())
+	svc, cleanup, err := usecase.NewService(ctx, cfg, usecase.ServiceDeps{})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	defer func() { _ = cleanup() }()
+
+	rt, err := runtime.New(cfg, svc, svc)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

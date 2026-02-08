@@ -1,0 +1,3 @@
+2026-01-28T16:00:00Z etcd config: election-timeout=5000
+2026-01-28T16:00:01Z lease-timeout=3s
+2026-01-28T16:00:02Z keepalive timeout=10s

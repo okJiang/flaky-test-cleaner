@@ -15,7 +15,7 @@
 - Alternative: weekly
 
 3) Storage
-- Default: SQLite state store
+- Default: TiDB Cloud Starter (MySQL protocol)
 - Entities: occurrences, fingerprints, issues, audit_log, costs (SPEC §10.1)
 
 4) Gating policy (automation safety)
