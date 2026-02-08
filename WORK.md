@@ -48,8 +48,8 @@
 - [x] 6.1 单元/集成测试补齐（discovery + interaction 主链路）
 - [x] 6.2 CI workflow、Makefile、README、TEST 对齐
 - [x] 6.3 dry-run 验证输出与审计日志检查
-- [ ] 6.4 每个子任务完成后 commit & push
-- [ ] 6.5 知识库 `.codex/knowledge/*.md` 记录实现事实与代码位置
+- [x] 6.4 每个子任务完成后 commit & push
+- [x] 6.5 知识库 `.codex/knowledge/*.md` 记录实现事实与代码位置
 
 ## Progress Log
 - 2026-02-08：从 `6831cfc` 创建 `worktrees/rebuild-6831cfc` 与分支 `codex/rebuild-from-6831cfc`。
@@ -58,3 +58,4 @@
 - 2026-02-08：完成 Phase B/C（GitHub adapter、extract/fingerprint/classify、Memory+TiDB store、DiscoveryOnce）。
 - 2026-02-08：完成 Phase D/E/F/G（IssueAgent、审批信号、workspace、FixAgent、PR feedback loop、终态收敛）。
 - 2026-02-08：完成 Phase H 主要交付（README/TEST/Makefile/CI），当前 `go test ./... -count=1` 全绿。
+- 2026-02-08：提交并推送 `phase-a: scaffold runtime/config/domain/ports` 与 `rewrite: implement full flaky cleaner architecture` 到 `origin/codex/rebuild-from-6831cfc`。
